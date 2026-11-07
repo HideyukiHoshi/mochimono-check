@@ -1,0 +1,91 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#15594d">
+  <meta name="description" content="帰宅後の持ち物をQRコードでチェック。データはこの端末の中に保存します。">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
+  <meta name="apple-mobile-web-app-title" content="もちもの">
+  <link rel="manifest" href="./manifest.webmanifest">
+  <link rel="apple-touch-icon" href="./icons/apple-touch-icon.png">
+  <link rel="icon" type="image/png" href="./icons/icon-192.png">
+  <link rel="stylesheet" href="./style.css">
+  <title>もちものチェック</title>
+  <script src="./vendor/qr-encode.js" defer></script>
+  <!-- jsQR is pre-cached for offline use by sw.js on the first online visit. -->
+  <script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.js" defer></script>
+  <script src="./app.js" defer></script>
+</head>
+<body>
+  <div class="app-shell">
+    <header class="header">
+      <div class="brand">
+        <div class="brand-icon" aria-hidden="true">✓</div>
+        <div><div class="brand-kicker">おうちの もちもの管理</div><div class="brand-name">もちものチェック</div></div>
+      </div>
+      <div id="offlineBadge" class="offline-badge" aria-live="polite">準備中</div>
+    </header>
+
+    <main>
+      <section id="homeView" class="view">
+        <div class="hero">
+          <div class="eyebrow" id="dateLabel">きょうのチェック</div>
+          <h1>おかえり！<span aria-hidden="true"> 🎒</span></h1>
+          <p>学校から持って帰ったものを、QRコードで確認しよう。</p>
+        </div>
+        <div class="progress-card">
+          <div class="progress-top"><span class="progress-label">きょうの確認</span><span id="progressCount" class="progress-count">0 / 0</span></div>
+          <div class="progress-track"><div class="progress-fill" id="progressFill"></div></div>
+          <div class="progress-message" id="progressMessage">持ち物を登録してね</div>
+        </div>
+        <button type="button" class="scan-cta" id="startScanButton"><span class="scan-cta-icon">▣</span><span>QRコードをスキャン<span class="cta-sub">カメラでつづけて読み取れるよ</span></span><span aria-hidden="true">›</span></button>
+        <div class="section-heading"><h2>もちものリスト</h2><span id="remainingText">—</span></div>
+        <div id="homeList" class="item-list"></div>
+        <p class="micro-note">※ リストの名前をタップすると、手動でもチェックできます。</p>
+      </section>
+
+      <section id="scannerView" class="view" hidden>
+        <div class="section-title"><h1>QRをよみとる</h1><p>持ち物のQRコードを枠の中に入れてね。</p></div>
+        <div class="camera-box">
+          <video id="cameraVideo" autoplay muted playsinline webkit-playsinline aria-label="QRコード読み取りカメラ"></video>
+          <div class="camera-shade" aria-hidden="true"><div class="target-corners"></div></div>
+          <div id="cameraPlaceholder" class="camera-placeholder"><span class="camera-placeholder-icon">📷</span><span>カメラを準備しています</span></div>
+        </div>
+        <div id="scanResult" class="scan-result" role="status" aria-live="polite"><span class="result-indicator">◎</span><span id="scanResultText">QRコードをカメラに向けてね。</span></div>
+        <button type="button" id="retryCamera" class="outline-button" hidden>カメラをもう一度起動</button>
+        <p class="hint">読めないときは、QRコードを明るい場所で10〜20cmほど離してみよう。連続して別の持ち物を読み取れるよ。</p>
+        <button type="button" id="backHome" class="text-button">‹ リストにもどる</button>
+      </section>
+
+      <section id="manageView" class="view" hidden>
+        <div class="section-title"><h1>もちものの管理</h1><p>名前を登録して、QRシールを作ろう。</p></div>
+        <form id="addForm" class="add-form"><label for="newItemName">新しいもちもの</label><div class="add-form-row"><input id="newItemName" name="name" type="text" maxlength="35" placeholder="例：給食袋" autocomplete="off" required><button type="submit">追加</button></div></form>
+        <div class="section-heading"><h2>登録しているもの</h2><span id="manageCount">0個</span></div>
+        <div id="manageList" class="manage-list"></div>
+        <div class="actions-card"><h2>QRシールをまとめて印刷</h2><p>登録した全アイテムのQRを、印刷用の画面にまとめるよ。</p><button id="printAllButton" class="outline-button" type="button">QRシールを印刷 / PDF保存</button></div>
+        <div class="actions-card"><h2>データのバックアップ</h2><p>別の端末への移行や、データ消失に備えて保存できます。復元すれば同じQRシールが使えるよ。</p><div class="stack-actions"><button id="exportButton" class="outline-button" type="button">バックアップを書き出す</button><button id="importButton" class="outline-button" type="button">バックアップから復元</button></div><input type="file" id="importFile" accept="application/json,.json" hidden></div>
+        <p class="micro-note">データはこのiPhone内に保存します。Safari版とホーム画面版では保存場所が別になる場合があるため、登録や復元はホーム画面版で行ってください。</p>
+      </section>
+    </main>
+    <nav class="bottom-nav" aria-label="メニュー">
+      <button type="button" data-view="home" class="nav-button active" aria-current="page"><span class="nav-icon">⌂</span><span>きょう</span></button>
+      <button type="button" data-view="scanner" class="nav-button"><span class="nav-icon">▣</span><span>スキャン</span></button>
+      <button type="button" data-view="manage" class="nav-button"><span class="nav-icon">☷</span><span>もちもの</span></button>
+    </nav>
+  </div>
+
+  <div id="qrModal" class="modal-backdrop" hidden>
+    <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="qrModalTitle">
+      <button type="button" class="modal-close" id="closeQrModal" aria-label="閉じる">×</button>
+      <div class="modal-kicker">QRシール</div><h2 id="qrModalTitle">もちもの</h2>
+      <p>このQRコードを印刷して、持ち物に貼りつけてね。</p>
+      <canvas id="qrCanvas" width="420" height="420" aria-label="持ち物のQRコード"></canvas>
+      <div class="stack-actions"><button id="saveQrButton" type="button" class="primary-button">QR画像を保存</button><button id="printSingleButton" type="button" class="outline-button">このQRを印刷 / PDF保存</button></div>
+    </div>
+  </div>
+  <div id="printSheet" aria-hidden="true"></div>
+  <div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
+</body>
+</html>
