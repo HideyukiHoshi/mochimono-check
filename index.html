@@ -4,16 +4,15 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <meta name="theme-color" content="#15594d">
-  <meta name="description" content="帰宅後の持ち物をQRコードでチェック。データはこの端末の中に保存します。">
+  <meta name="description" content="QRコードで持ち物をチェック。みんなのおへやで持ち物たちがうろうろ。端末内保存。">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="default">
   <meta name="apple-mobile-web-app-title" content="もちもの">
   <link rel="manifest" href="./manifest.webmanifest">
-  <link rel="apple-touch-icon" href="./icons/apple-touch-icon.png">
-  <link rel="icon" type="image/png" href="./icons/icon-192.png">
+  <link rel="apple-touch-icon" href="./apple-touch-icon.png">
+  <link rel="icon" type="image/png" href="./icon-192.png">
   <link rel="stylesheet" href="./style.css">
   <title>もちものチェック</title>
-  <script src="./vendor/qr-encode.js" defer></script>
   <!-- jsQR is pre-cached for offline use by sw.js on the first online visit. -->
   <script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.js" defer></script>
   <script src="./app.js" defer></script>
@@ -35,10 +34,29 @@
           <h1>おかえり！<span aria-hidden="true"> 🎒</span></h1>
           <p>学校から持って帰ったものを、QRコードで確認しよう。</p>
         </div>
+
+        <section class="friends-card" aria-labelledby="friendsTitle">
+          <div class="friends-head"><div><span class="friends-kicker">もちものフレンズ</span><h2 id="friendsTitle">みんなの おへや</h2></div><span id="friendsMiniStatus" class="friends-status">のんびり しているよ</span></div>
+          <div id="friendsRoom" class="room-scene" role="group" aria-label="持ち物たちが暮らすおへや">
+            <div class="room-wall-decor" aria-hidden="true"><span class="window-pane"></span><span class="wall-hook"></span></div>
+            <div class="room-floor-line" aria-hidden="true"></div>
+            <div id="friendsLayer" class="friends-layer"></div>
+          </div>
+          <div id="friendsMessage" class="friends-message" role="status" aria-live="polite">チェックすると みんなが少しずつ近づいてくるよ。</div>
+          <div class="friends-note">よくチェックする子ほど、こちらを向いて近づいてくるよ。土日はおやすみ。</div>
+        </section>
         <div class="progress-card">
-          <div class="progress-top"><span class="progress-label">きょうの確認</span><span id="progressCount" class="progress-count">0 / 0</span></div>
-          <div class="progress-track"><div class="progress-fill" id="progressFill"></div></div>
-          <div class="progress-message" id="progressMessage">持ち物を登録してね</div>
+          <div class="progress-layout">
+            <div id="progressGauge" class="progress-gauge" role="meter" aria-label="確認できた持ち物の割合" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0">
+              <div class="gauge-core"><strong id="gaugePercent">0%</strong><span>クリア</span></div>
+            </div>
+            <div class="progress-main">
+              <div class="progress-label">きょうの クリア数</div>
+              <div class="progress-count" id="progressCount">0 / 0</div>
+              <div class="progress-track"><div class="progress-fill" id="progressFill"></div></div>
+              <div class="progress-message" id="progressMessage">持ち物を登録してね</div>
+            </div>
+          </div>
         </div>
         <button type="button" class="scan-cta" id="startScanButton"><span class="scan-cta-icon">▣</span><span>QRコードをスキャン<span class="cta-sub">カメラでつづけて読み取れるよ</span></span><span aria-hidden="true">›</span></button>
         <div class="section-heading"><h2>もちものリスト</h2><span id="remainingText">—</span></div>
@@ -54,9 +72,28 @@
           <div id="cameraPlaceholder" class="camera-placeholder"><span class="camera-placeholder-icon">📷</span><span>カメラを準備しています</span></div>
         </div>
         <div id="scanResult" class="scan-result" role="status" aria-live="polite"><span class="result-indicator">◎</span><span id="scanResultText">QRコードをカメラに向けてね。</span></div>
+        <div class="scanner-score" aria-live="polite"><div><strong>クリア数</strong><span id="scanProgressCount">0 / 0</span></div><div class="progress-track"><div id="scanProgressFill" class="progress-fill"></div></div></div>
         <button type="button" id="retryCamera" class="outline-button" hidden>カメラをもう一度起動</button>
         <p class="hint">読めないときは、QRコードを明るい場所で10〜20cmほど離してみよう。連続して別の持ち物を読み取れるよ。</p>
         <button type="button" id="backHome" class="text-button">‹ リストにもどる</button>
+      </section>
+
+      <section id="calendarView" class="view" hidden>
+        <div class="section-title"><h1>カレンダー</h1><p>その日にチェックできたものを振り返ろう。</p></div>
+        <div class="calendar-card">
+          <div class="calendar-toolbar">
+            <button type="button" id="calendarPrev" aria-label="前の月">‹</button>
+            <strong id="calendarMonthLabel">2026年11月</strong>
+            <button type="button" id="calendarNext" aria-label="次の月">›</button>
+          </div>
+          <div class="calendar-weekdays" aria-hidden="true"><span>日</span><span>月</span><span>火</span><span>水</span><span>木</span><span>金</span><span>土</span></div>
+          <div id="calendarGrid" class="calendar-grid" role="group" aria-label="確認履歴の日付"></div>
+          <div class="calendar-legend"><span><i class="legend-dot complete"></i>全クリア</span><span><i class="legend-dot partial"></i>一部確認</span><span><i class="legend-dot no-record"></i>記録なし</span></div>
+        </div>
+        <div id="calendarDetail" class="calendar-detail" aria-live="polite"></div>
+          <button type="button" id="calendarRestToggle" class="rest-toggle" aria-pressed="false">この日を「おやすみ」にする</button>
+          <p class="rest-note">学校がない日・旅行の日は「おやすみ」にできるよ。おやすみの日はフレンズの元気度が下がらないんだ。</p>
+        <p class="micro-note">※「未確認」はQRスキャンや手動チェックがなかったもの。学校に忘れたことが確定したわけではないよ。履歴はこのアプリの更新後から記録されるよ。</p>
       </section>
 
       <section id="manageView" class="view" hidden>
@@ -72,6 +109,7 @@
     <nav class="bottom-nav" aria-label="メニュー">
       <button type="button" data-view="home" class="nav-button active" aria-current="page"><span class="nav-icon">⌂</span><span>きょう</span></button>
       <button type="button" data-view="scanner" class="nav-button"><span class="nav-icon">▣</span><span>スキャン</span></button>
+      <button type="button" data-view="calendar" class="nav-button"><span class="nav-icon">▦</span><span>きろく</span></button>
       <button type="button" data-view="manage" class="nav-button"><span class="nav-icon">☷</span><span>もちもの</span></button>
     </nav>
   </div>

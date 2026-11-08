@@ -1,6 +1,6 @@
 /* Offline PWA shell, including the third-party QR decoder's first-run cache. */
-const CACHE_NAME='mochimono-v1.0.0';
-const SHELL=['./','./index.html','./style.css','./app.js','./manifest.webmanifest','./vendor/qr-encode.js','./icons/icon-192.png','./icons/icon-512.png','./icons/apple-touch-icon.png'];
+const CACHE_NAME='mochimono-v1.3.0';
+const SHELL=['./','./index.html','./style.css','./app.js','./manifest.webmanifest','./icon-192.png','./icon-512.png','./apple-touch-icon.png'];
 const QR_READER='https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.js';
 self.addEventListener('install',event=>{
   event.waitUntil((async()=>{

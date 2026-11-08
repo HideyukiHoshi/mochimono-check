@@ -1,7 +1,7 @@
 # オープンソースライブラリ
 
 ## QRコード生成: QRCode for JavaScript (Kazuhiko Arase)
-`vendor/qr-encode.js` は、`qrcode-terminal` に同梱された Arase 氏の QRCode 実装をブラウザ用にまとめたものです。元のライブラリは MIT License です。
+`qr-encode.js` は、`qrcode-terminal` に同梱された Arase 氏の QRCode 実装をブラウザ用にまとめたものです。元のライブラリは MIT License です。
 
 Copyright (c) 2009 Kazuhiko Arase
 
