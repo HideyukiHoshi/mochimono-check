@@ -1,5 +1,5 @@
 const STORAGE_KEY = 'mochimochi-mochimono-v15';
-const APP_VERSION = 'v1.5';
+const APP_VERSION = 'v1.5.1';
 const qrPrefix = 'MCM:';
 const weekdayNames = ['日','月','火','水','木','金','土'];
 const presetKinds = [
@@ -79,34 +79,70 @@ function makeItem(name, kind, days){
   return {id:uid(), name, kind, days:days||[false,true,true,true,true,true,false], qrId:uid(), createdAt:Date.now()};
 }
 
+// v1.5.1: import previous versions without changing the IDs printed on QR stickers.
 function loadState(){
   try{
     const raw = localStorage.getItem(STORAGE_KEY);
-    if(raw){
-      const parsed = JSON.parse(raw);
-      return normalizeState(parsed);
+    if(raw) return normalizeState(JSON.parse(raw));
+    const legacy = localStorage.getItem('mochimono-check-v1');
+    if(legacy){
+      const parsed = JSON.parse(legacy);
+      if(parsed && Array.isArray(parsed.items)) return migrateV14(parsed);
     }
-    for(let i=0;i<localStorage.length;i++){
-      const key = localStorage.key(i);
-      if(!key || key === STORAGE_KEY) continue;
-      if(!/mochi|mochimono/i.test(key)) continue;
-      try{
-        const candidate = JSON.parse(localStorage.getItem(key));
-        if(candidate && Array.isArray(candidate.items)){
-          return normalizeState(candidate);
-        }
-      }catch(err){}
-    }
-  }catch(e){}
+  }catch(e){ console.warn('Could not read previous data:',e); }
   return normalizeState({items:[], daily:{}, history:{}, admin:{pin:'', unlocked:false}});
 }
-
+function migrateV14(old){
+  const legacyKinds = {pencil:'pencilcase',bottle:'bottle',book:'notebook',shoe:'shoes',bag:'bag',cloth:'handkerchief',gym:'gym',lunch:'lunch',folder:'bag',mat:'board',tablet:'ipad',tissue:'tissue',umbrella:'umbrella',cap:'hat',letter:'custom'};
+  const items = old.items.map(i=>({
+    id:i.id, qrId:i.id, qrPrefix:'MCHK:', name:i.name,
+    kind:legacyKinds[i.type] || 'custom',
+    days:Array.from({length:7},(_,d)=>(i.weekdays||[1,2,3,4,5]).includes(d)),
+    createdAt:Date.now()
+  }));
+  const data = {items,daily:{},history:{},admin:{pin:'',unlocked:false},scheduleOverrides:{}};
+  try{ data.scheduleOverrides = JSON.parse(localStorage.getItem('mochimono-schedule-v1') || '{}') || {}; }catch(e){}
+  try{
+    const hist=JSON.parse(localStorage.getItem('mochimono-history-v1') || '{}') || {};
+    for(const [date,day] of Object.entries(hist)){
+      if(!day || !Array.isArray(day.expected)) continue;
+      const checked=new Set(day.checked || []), scanned=new Set(day.scanned || []);
+      const converted=day.expected.map(entry=>({
+        id:entry.id,name:entry.name,kind:items.find(it=>it.id===entry.id)?.kind || 'custom',
+        status:scanned.has(entry.id)?'qr':checked.has(entry.id)?'manual':'missing'
+      }));
+      data.history[date]={date,items:converted,rest:!!day.rest,updatedAt:Date.now()};
+      data.daily[date]=Object.fromEntries(converted.map(x=>[x.id,x.status]));
+    }
+  }catch(e){ console.warn('History migration skipped:',e); }
+  const today=todayKey();
+  for(const oldItem of old.items){
+    if(oldItem.checkedOn===today && !data.daily[today]?.[oldItem.id]){
+      if(!data.daily[today]) data.daily[today]={};
+      data.daily[today][oldItem.id]='manual';
+    }
+  }
+  try{
+    const pin=JSON.parse(localStorage.getItem('mochimono-parent-pin-v1')||'null');
+    if(pin && /^[a-f0-9]{32}$/.test(pin.salt) && /^[a-f0-9]{64}$/.test(pin.hash)){
+      data.admin.legacySalt=pin.salt;data.admin.legacyHash=pin.hash;
+    }
+  }catch(e){}
+  return normalizeState(data);
+}
 function normalizeState(s){
   return {
-    items:Array.isArray(s.items)?s.items:[],
+    items:(Array.isArray(s.items)?s.items:[]).map(i=>({
+      ...i,
+      qrId:i.qrId || i.id || uid(),
+      qrPrefix:i.qrPrefix || (i.weekdays ? 'MCHK:' : qrPrefix),
+      kind:i.kind || 'custom',
+      days:Array.isArray(i.days) && i.days.length===7 ? i.days : Array.from({length:7},(_,d)=>Array.isArray(i.weekdays)?i.weekdays.includes(d):d>=1&&d<=5)
+    })),
     daily:s.daily||{},
     history:s.history||{},
-    admin:{pin:(s.admin&&s.admin.pin)||'', unlocked:false},
+    scheduleOverrides:s.scheduleOverrides||{},
+    admin:{pin:(s.admin&&s.admin.pin)||'',legacySalt:s.admin?.legacySalt||'',legacyHash:s.admin?.legacyHash||'',unlocked:false},
     lastQrValue:s.lastQrValue||'',
     currentQrItemId:s.currentQrItemId||''
   };
@@ -157,7 +193,10 @@ function setStatus(itemId, status, dateKey = todayKey()){
 }
 function requiredItems(dateKey = todayKey()){
   const d = new Date(dateKey+'T00:00:00'); const w = d.getDay();
-  return state.items.filter(item => (item.days && item.days[w]) !== false);
+  return state.items.filter(item => {
+    const overridden=state.scheduleOverrides?.[dateKey]?.[item.id];
+    return typeof overridden==='boolean' ? overridden : (item.days && item.days[w]) !== false;
+  });
 }
 function checkedCount(dateKey = todayKey()){
   const req = requiredItems(dateKey);
@@ -166,9 +205,11 @@ function checkedCount(dateKey = todayKey()){
 }
 function syncHistory(dateKey = todayKey()){
   const req = requiredItems(dateKey);
+  const old = state.history[dateKey] || {};
   state.history[dateKey] = {
     date: dateKey,
     items: req.map(item=>({id:item.id,name:item.name,kind:item.kind,status:statusFor(item.id,dateKey)})),
+    rest:!!old.rest,
     updatedAt: Date.now()
   };
 }
@@ -335,7 +376,7 @@ function scanLoop(){
   scan.raf = requestAnimationFrame(scanLoop);
 }
 function onScanValue(val){
-  const item = state.items.find(it => `${qrPrefix}${it.qrId}` === val);
+  const item = state.items.find(it => `${it.qrPrefix || qrPrefix}${it.qrId}` === val);
   if(item){
     setStatus(item.id,'qr');
     prependLog(`「${item.name}」を見つけたよ！`);
@@ -405,7 +446,7 @@ function weekdaySummary(days){ const arr = weekdayNames.filter((_,i)=>days[i]); 
 
 function renderAdmin(){
   if(currentView !== 'adminView') return;
-  const pinSet = !!state.admin.pin;
+  const pinSet = !!(state.admin.pin || state.admin.legacyHash);
   if(!pinSet){
     el.adminAuth.innerHTML = `<div><strong>保護者用PINを作る</strong><p class="micro-note">4〜8桁の数字で、管理画面に入るためのPINを決めてね。</p></div><div class="pin-row"><input id="setPinInput" type="password" inputmode="numeric" maxlength="8" placeholder="PIN"><button type="button" class="primary-button" id="setPinButton">設定する</button></div>`;
     el.adminPanel.hidden = true;
@@ -415,7 +456,13 @@ function renderAdmin(){
   if(!state.admin.unlocked){
     el.adminAuth.innerHTML = `<div><strong>保護者PINを入力</strong><p class="micro-note">もちもの一覧の追加・削除・曜日設定をするときに使うよ。</p></div><div class="pin-row"><input id="enterPinInput" type="password" inputmode="numeric" maxlength="8" placeholder="PIN"><button type="button" class="primary-button" id="enterPinButton">入る</button></div>`;
     el.adminPanel.hidden = true;
-    document.getElementById('enterPinButton').onclick = ()=>{ const pin = document.getElementById('enterPinInput').value.trim(); if(simpleHash(pin) !== state.admin.pin){ alert('PINがちがうようです'); return; } state.admin.unlocked = true; renderAdmin(); };
+    document.getElementById('enterPinButton').onclick = async ()=>{
+      const pin = document.getElementById('enterPinInput').value.trim();
+      let ok = !!(state.admin.pin && simpleHash(pin)===state.admin.pin);
+      if(!ok && state.admin.legacyHash) ok = await verifyLegacyPin(pin, state.admin.legacySalt, state.admin.legacyHash);
+      if(!ok){ alert('PINがちがうようです'); return; }
+      state.admin.unlocked = true; renderAdmin();
+    };
     return;
   }
   el.adminAuth.innerHTML = `<div class="friends-status">保護者モードです</div>`;
@@ -424,6 +471,15 @@ function renderAdmin(){
 }
 function lockAdmin(){ state.admin.unlocked = false; renderAdmin(); }
 function simpleHash(s){ return btoa(unescape(encodeURIComponent('pin:'+s))); }
+async function verifyLegacyPin(pin,salt,expected){
+  try{
+    const key=await crypto.subtle.importKey('raw',new TextEncoder().encode(pin),'PBKDF2',false,['deriveBits']);
+    const bytes=Uint8Array.from(salt.match(/.{2}/g),x=>parseInt(x,16));
+    const hash=new Uint8Array(await crypto.subtle.deriveBits({name:'PBKDF2',salt:bytes,iterations:120000,hash:'SHA-256'},key,256));
+    const actual=Array.from(hash,x=>x.toString(16).padStart(2,'0')).join('');
+    return actual===expected;
+  }catch(e){ return false; }
+}
 
 function onAddItem(ev){
   ev.preventDefault();
@@ -464,7 +520,7 @@ function deleteAdminItem(id){
 function showQrFor(id){
   const item = state.items.find(x=>x.id===id); if(!item) return;
   if(!window.QRious){ alert('QRの準備がまだできていません。オンラインで再読込してみてください。'); return; }
-  state.currentQrItemId = id; state.lastQrValue = `${qrPrefix}${item.qrId}`;
+  state.currentQrItemId = id; state.lastQrValue = `${item.qrPrefix || qrPrefix}${item.qrId}`;
   const qr = new window.QRious({element:el.qrCanvas, value:state.lastQrValue, size:240, level:'H', foreground:'#2f2b28', background:'#ffffff'});
   el.qrDialogTitle.textContent = `${item.name} のQRコード`;
   el.qrDialogText.textContent = '長押しで画像保存できます。印刷して持ち物に貼ってください。';
