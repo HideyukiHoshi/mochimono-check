@@ -3,17 +3,17 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-  <meta name="theme-color" content="#15594d">
-  <meta name="description" content="QRコードで持ち物をチェック。みんなのおへやで持ち物たちがうろうろ。端末内保存。">
+  <meta name="theme-color" content="#f7c9bc">
+  <meta name="description" content="QRコードで持ち物をチェック。もちもちした持ち物フレンズが、おへやでうろうろするよ。端末内保存。">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="default">
-  <meta name="apple-mobile-web-app-title" content="もちもの">
+  <meta name="apple-mobile-web-app-title" content="もちもちもちもの">
   <link rel="manifest" href="./manifest.webmanifest">
   <link rel="apple-touch-icon" href="./apple-touch-icon.png">
   <link rel="icon" type="image/png" href="./icon-192.png">
   <link rel="stylesheet" href="./style.css">
-  <title>もちものチェック</title>
-  <!-- jsQR is pre-cached for offline use by sw.js on the first online visit. -->
+  <title>もちもちもちもの</title>
+  <script src="https://cdn.jsdelivr.net/npm/qrious@4.0.2/dist/qrious.min.js" defer></script>
   <script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.js" defer></script>
   <script src="./app.js" defer></script>
 </head>
@@ -21,30 +21,43 @@
   <div class="app-shell">
     <header class="header">
       <div class="brand">
-        <div class="brand-icon" aria-hidden="true">✓</div>
-        <div><div class="brand-kicker">おうちの もちもの管理</div><div class="brand-name">もちものチェック</div></div>
+        <div class="brand-icon" aria-hidden="true">も</div>
+        <div>
+          <div class="brand-kicker">おうちの もちものフレンズ</div>
+          <div class="brand-name">もちもちもちもの</div>
+        </div>
       </div>
-      <div id="offlineBadge" class="offline-badge" aria-live="polite">準備中</div>
+      <div class="header-actions">
+        <button id="settingsButton" class="icon-button" type="button" aria-label="保護者設定">⚙︎</button>
+        <div id="offlineBadge" class="offline-badge" aria-live="polite">準備中</div>
+      </div>
     </header>
 
     <main>
       <section id="homeView" class="view">
         <div class="hero">
           <div class="eyebrow" id="dateLabel">きょうのチェック</div>
-          <h1>おかえり！<span aria-hidden="true"> 🎒</span></h1>
-          <p>学校から持って帰ったものを、QRコードで確認しよう。</p>
+          <h1>おかえり！<span aria-hidden="true"> 🫧</span></h1>
+          <p>もちもちフレンズを見つけて、おうちに連れて帰ろう。</p>
         </div>
 
         <section class="friends-card" aria-labelledby="friendsTitle">
-          <div class="friends-head"><div><span class="friends-kicker">もちものフレンズ</span><h2 id="friendsTitle">みんなの おへや</h2></div><span id="friendsMiniStatus" class="friends-status">のんびり しているよ</span></div>
+          <div class="friends-head">
+            <div>
+              <span class="friends-kicker">もちもちフレンズ</span>
+              <h2 id="friendsTitle">みんなの おへや</h2>
+            </div>
+            <span id="friendsMiniStatus" class="friends-status">のんびり しているよ</span>
+          </div>
           <div id="friendsRoom" class="room-scene" role="group" aria-label="持ち物たちが暮らすおへや">
             <div class="room-wall-decor" aria-hidden="true"><span class="window-pane"></span><span class="wall-hook"></span></div>
             <div class="room-floor-line" aria-hidden="true"></div>
             <div id="friendsLayer" class="friends-layer"></div>
           </div>
-          <div id="friendsMessage" class="friends-message" role="status" aria-live="polite">チェックすると みんなが少しずつ近づいてくるよ。</div>
-          <div class="friends-note">持ち物たちはおへやをうろうろ。QRをよくスキャンすると、元気になって近づいてくるよ。</div>
+          <div id="friendsMessage" class="friends-message" role="status" aria-live="polite">QRを見つけると、みんながもちもちっと喜ぶよ。</div>
+          <div class="friends-note">スキャンが続くほど、部屋の中を元気にうろうろするよ。</div>
         </section>
+
         <div class="progress-card">
           <div class="progress-layout">
             <div id="progressGauge" class="progress-gauge" role="meter" aria-label="確認できた持ち物の割合" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0">
@@ -58,10 +71,14 @@
             </div>
           </div>
         </div>
-        <button type="button" class="scan-cta" id="startScanButton"><span class="scan-cta-icon">▣</span><span>QRコードをスキャン<span class="cta-sub">カメラでつづけて読み取れるよ</span></span><span aria-hidden="true">›</span></button>
-        <div class="section-heading"><h2>もちものリスト</h2><span id="remainingText">—</span></div>
+
+        <div class="home-actions">
+          <button type="button" class="scan-cta" id="startScanButton"><span class="scan-cta-icon">▣</span><span>QRコードをスキャン<span class="cta-sub">カメラでつづけて読み取れるよ</span></span><span aria-hidden="true">›</span></button>
+        </div>
+
+        <div class="section-heading"><h2>きょうの もちもの</h2><span id="remainingText">—</span></div>
         <div id="homeList" class="item-list"></div>
-        <p class="micro-note">※ その日に必要な持ち物だけを表示するよ。リストをタップすると手動でチェックできます。</p>
+        <p class="micro-note">※ 「今日はもって帰らなくてよかった」を押すと、その日はチェック不要にできます。</p>
       </section>
 
       <section id="scannerView" class="view" hidden>
@@ -69,76 +86,73 @@
         <div class="camera-box">
           <video id="cameraVideo" autoplay muted playsinline webkit-playsinline aria-label="QRコード読み取りカメラ"></video>
           <div class="camera-shade" aria-hidden="true"><div class="target-corners"></div></div>
-          <div id="cameraPlaceholder" class="camera-placeholder"><span class="camera-placeholder-icon">📷</span><span>カメラを準備しています</span></div>
         </div>
-        <div id="scanResult" class="scan-result" role="status" aria-live="polite"><span class="result-indicator">◎</span><span id="scanResultText">QRコードをカメラに向けてね。</span></div>
-        <div class="scanner-score" aria-live="polite"><div><strong>クリア数</strong><span id="scanProgressCount">0 / 0</span></div><div class="progress-track"><div id="scanProgressFill" class="progress-fill"></div></div></div>
-        <button type="button" id="retryCamera" class="outline-button" hidden>カメラをもう一度起動</button>
-        <p class="hint">読めないときは、QRコードを明るい場所で10〜20cmほど離してみよう。連続して別の持ち物を読み取れるよ。</p>
-        <button type="button" id="backHome" class="text-button">‹ リストにもどる</button>
+        <div class="scan-status" id="scanStatus">「カメラを使う」を許可してね。</div>
+        <div class="scan-log" id="scanLog"></div>
+        <div class="two-buttons"><button type="button" class="secondary-button" id="stopScanButton">ホームにもどる</button><button type="button" class="secondary-button" id="switchCameraButton">カメラを再起動</button></div>
       </section>
 
       <section id="calendarView" class="view" hidden>
-        <div class="section-title"><h1>カレンダー</h1><p>その日に必要だったものと、確認できたものを振り返ろう。</p></div>
+        <div class="section-title"><h1>カレンダー</h1><p>その日にあったもの・なかったものをふりかえろう。</p></div>
         <div class="calendar-card">
-          <div class="calendar-toolbar">
-            <button type="button" id="calendarPrev" aria-label="前の月">‹</button>
-            <strong id="calendarMonthLabel">2026年11月</strong>
-            <button type="button" id="calendarNext" aria-label="次の月">›</button>
-          </div>
-          <div class="calendar-weekdays" aria-hidden="true"><span>日</span><span>月</span><span>火</span><span>水</span><span>木</span><span>金</span><span>土</span></div>
-          <div id="calendarGrid" class="calendar-grid" role="group" aria-label="確認履歴の日付"></div>
-          <div class="calendar-legend"><span><i class="legend-dot complete"></i>全クリア</span><span><i class="legend-dot partial"></i>一部確認</span><span><i class="legend-dot no-record"></i>記録なし</span></div>
+          <div class="calendar-top"><button type="button" class="mini-button" id="prevMonthButton">‹</button><strong id="calendarTitle">2026年11月</strong><button type="button" class="mini-button" id="nextMonthButton">›</button></div>
+          <div class="weekday-row"><span>日</span><span>月</span><span>火</span><span>水</span><span>木</span><span>金</span><span>土</span></div>
+          <div id="calendarGrid" class="calendar-grid"></div>
         </div>
-        <div id="calendarDetail" class="calendar-detail" aria-live="polite"></div>
-          <button type="button" id="calendarRestToggle" class="rest-toggle" aria-pressed="false">この日を「おやすみ」にする</button>
-          <p class="rest-note">学校がない日・旅行の日は「おやすみ」にできるよ。おやすみの日はフレンズの元気度が下がらないんだ。</p>
-        <p class="micro-note">※「未確認」はQRスキャンや手動チェックがなかったもの。学校に忘れたことが確定したわけではないよ。履歴はこのアプリの更新後から記録されるよ。</p>
+        <div id="calendarDetail" class="calendar-detail"></div>
       </section>
 
-      <section id="manageView" class="view" hidden>
-        <div class="section-title"><h1>保護者の設定</h1><p>持ち物、QRシール、曜日と日ごとの予定を管理するよ。</p></div>
-        <div class="admin-notice">🔒 この画面は保護者用です。ほかのタブに戻るとロックされます。</div>
-        <section class="actions-card"><h2>イラストから追加</h2><p>使いたい持ち物をタップして登録できるよ。登録後は曜日やQRを設定してね。</p><div id="catalogGrid" class="catalog-grid"></div></section>
-        <form id="addForm" class="add-form"><label for="newItemName">リストにない持ち物を追加</label><p class="field-help">イラストがない持ち物は、名前の最初の文字に目と手足がつくよ。</p><div class="add-form-row"><input id="newItemName" name="name" type="text" maxlength="35" placeholder="例：図工バッグ" autocomplete="off" required><button type="submit">追加</button></div></form>
-        <section class="actions-card schedule-card"><h2>日付ごとの持ち物</h2><p>基本の曜日設定とは別に、特定の日だけ必要・不要を変更できるよ。行事や特別授業の日に使ってね。</p><label for="planDate" class="field-label">設定したい日付</label><input id="planDate" type="date" class="plan-date"><div id="planList" class="plan-list"></div><button id="planResetButton" type="button" class="outline-button">この日の特別設定を解除</button></section>
-        <div class="section-heading"><h2>登録しているもの・曜日設定</h2><span id="manageCount">0個</span></div><p class="field-help">月〜日から、毎週必要な曜日を選んでね。何も選ばなければ「毎週なし」になるよ。</p>
-        <div id="manageList" class="manage-list"></div>
-        <div class="actions-card"><h2>QRシールをまとめて印刷</h2><p>登録した全アイテムのQRを、印刷用の画面にまとめるよ。</p><button id="printAllButton" class="outline-button" type="button">QRシールを印刷 / PDF保存</button></div>
-        <div class="actions-card"><h2>データのバックアップ</h2><p>別の端末への移行や、データ消失に備えて保存できます。復元すれば同じQRシールが使えるよ。</p><div class="stack-actions"><button id="exportButton" class="outline-button" type="button">バックアップを書き出す</button><button id="importButton" class="outline-button" type="button">バックアップから復元</button></div><input type="file" id="importFile" accept="application/json,.json" hidden></div>
-        <div class="actions-card"><h2>保護者用PIN</h2><p>4〜8桁の数字で、この設定画面を保護します。</p><button id="changePinButton" type="button" class="outline-button">PINを変更する</button><p class="field-help">このPINは端末内で確認します。Webアプリのため、厳密なアクセス制御ではありません。PINを忘れた場合に備えてバックアップを保存してください。</p></div><p class="micro-note">データはこのiPhone内に保存されます。Safari版とホーム画面版では保存場所が別になることがあります。</p>
+      <section id="adminView" class="view" hidden>
+        <div class="section-title"><h1>保護者の設定</h1><p>持ち物の登録や曜日設定は保護者だけが変更できます。</p></div>
+        <div id="adminAuth" class="auth-card"></div>
+        <div id="adminPanel" hidden>
+          <div class="admin-section soft-card">
+            <div class="admin-topline"><h2>あたらしい もちもの</h2><button type="button" class="mini-button" id="lockAdminButton">ロック</button></div>
+            <form id="addItemForm" class="form-stack">
+              <label>もちもの名<input type="text" id="itemNameInput" maxlength="24" placeholder="例：うわばき" required></label>
+              <label>種類<select id="itemKindSelect"></select></label>
+              <div>
+                <div class="label-inline">必要な曜日</div>
+                <div id="weekdayEditor" class="weekday-editor"></div>
+              </div>
+              <button type="submit" class="primary-button">このもちものを追加</button>
+            </form>
+          </div>
+
+          <div class="admin-section soft-card">
+            <h2>登録した もちもの</h2>
+            <div id="adminItemsList" class="admin-items-list"></div>
+          </div>
+
+          <div class="admin-section soft-card">
+            <h2>バックアップ</h2>
+            <div class="two-buttons"><button type="button" class="secondary-button" id="exportButton">バックアップを書き出す</button><label class="file-label secondary-button">復元する<input id="importInput" type="file" accept="application/json" hidden></label></div>
+          </div>
+        </div>
       </section>
     </main>
-    <nav class="bottom-nav" aria-label="メニュー">
-      <button type="button" data-view="home" class="nav-button active" aria-current="page"><span class="nav-icon">⌂</span><span>きょう</span></button>
-      <button type="button" data-view="scanner" class="nav-button"><span class="nav-icon">▣</span><span>スキャン</span></button>
-      <button type="button" data-view="calendar" class="nav-button"><span class="nav-icon">▦</span><span>きろく</span></button>
-      <button type="button" data-view="manage" class="nav-button"><span class="nav-icon">⚙</span><span>保護者</span></button>
+
+    <nav class="bottom-nav" aria-label="ナビゲーション">
+      <button class="tab is-active" data-view="homeView" type="button">ホーム</button>
+      <button class="tab" data-view="scannerView" type="button">スキャン</button>
+      <button class="tab" data-view="calendarView" type="button">カレンダー</button>
     </nav>
   </div>
 
-  <div id="pinModal" class="modal-backdrop" hidden>
-    <form id="pinForm" class="modal-card pin-card" role="dialog" aria-modal="true" aria-labelledby="pinTitle">
-      <button type="button" class="modal-close" id="closePinModal" aria-label="閉じる">×</button>
-      <div class="modal-kicker">保護者用のロック</div><h2 id="pinTitle">PINを入力</h2>
-      <p id="pinHint">保護者用の数字を入力してね。</p>
-      <label for="pinInput" class="field-label">4〜8桁の数字</label>
-      <input id="pinInput" type="password" inputmode="numeric" pattern="[0-9]{4,8}" minlength="4" maxlength="8" autocomplete="off" required class="pin-input">
-      <div id="pinConfirmRow" hidden><label for="pinConfirmInput" class="field-label">もう一度入力</label><input id="pinConfirmInput" type="password" inputmode="numeric" pattern="[0-9]{4,8}" minlength="4" maxlength="8" autocomplete="off" class="pin-input"></div>
-      <p id="pinError" class="pin-error" role="alert"></p>
-      <button id="pinSubmit" type="submit" class="primary-button">ロックを解除</button>
+  <dialog id="qrDialog" class="sheet-dialog">
+    <form method="dialog" class="sheet-card">
+      <div class="sheet-top"><h2 id="qrDialogTitle">QRコード</h2><button class="icon-button" value="cancel">✕</button></div>
+      <div class="qr-preview-wrap"><canvas id="qrCanvas" width="240" height="240" aria-label="QRコード"></canvas></div>
+      <p class="micro-note" id="qrDialogText">長押しで画像保存できます。</p>
+      <div class="two-buttons"><button type="button" class="secondary-button" id="printQrButton">印刷しやすい表示</button><button class="primary-button" value="ok">閉じる</button></div>
     </form>
-  </div>
-  <div id="qrModal" class="modal-backdrop" hidden>
-    <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="qrModalTitle">
-      <button type="button" class="modal-close" id="closeQrModal" aria-label="閉じる">×</button>
-      <div class="modal-kicker">QRシール</div><h2 id="qrModalTitle">もちもの</h2>
-      <p>このQRコードを印刷して、持ち物に貼りつけてね。</p>
-      <canvas id="qrCanvas" width="420" height="420" aria-label="持ち物のQRコード"></canvas>
-      <div class="stack-actions"><button id="saveQrButton" type="button" class="primary-button">QR画像を保存</button><button id="printSingleButton" type="button" class="outline-button">このQRを印刷 / PDF保存</button></div>
+  </dialog>
+
+  <div id="celebratePopup" class="celebrate-popup" hidden>
+    <div class="celebrate-card">
+      <div id="celebrateChar" class="celebrate-char"></div>
+      <div class="celebrate-texts"><strong id="celebrateTitle">みつけてもらえてうれしい！</strong><div id="celebrateBody">もちもち〜！</div></div>
     </div>
   </div>
-  <div id="printSheet" aria-hidden="true"></div>
-  <div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
 </body>
 </html>
