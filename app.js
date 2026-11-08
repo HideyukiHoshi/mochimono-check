@@ -1267,12 +1267,27 @@ root.MCQRCode=req("index");root.MCQRCodeLevels=req("QRErrorCorrectLevel");
   'use strict';
   const STORAGE_KEY = 'mochimono-check-v1';
   const HISTORY_KEY = 'mochimono-history-v1';
+  const OVERRIDES_KEY = 'mochimono-schedule-v1';
+  const PIN_KEY = 'mochimono-parent-pin-v1';
   const PREFIX = 'MCHK:';
   const UUID_RE = /^[0-9A-F]{8}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{12}$/;
   const $ = (id) => document.getElementById(id);
+  const SCHOOL_DAYS=[1,2,3,4,5], DAY_NAMES=['日','月','火','水','木','金','土'];
+  const CATALOG=[
+    ['筆箱','pencil'],['連絡帳','book'],['水筒','bottle'],['宿題ノート','book'],['上履き','shoe',[5]],
+    ['体操服','gym'],['給食セット','lunch'],['連絡袋','folder'],['したじき','mat'],['iPad','tablet'],
+    ['教科書','book'],['自由帳','book'],['ハンカチ','cloth'],['ティッシュ','tissue'],['ランドセル','bag'],
+    ['歯ブラシ','brush'],['なわとび','rope'],['傘','umbrella'],['帽子','cap'],['お弁当','lunchbox'],
+    ['絵の具セット','art'],['リコーダー','flute'],['定規','ruler'],['手さげ袋','bag']
+  ].map(([name,type,weekdays])=>({name,type,weekdays:weekdays||SCHOOL_DAYS}));
+  const TYPE_LABELS={pencil:'筆箱',bottle:'水筒',book:'ノート・本',shoe:'上履き',bag:'かばん',cloth:'ハンカチ',gym:'体操服',lunch:'給食セット',folder:'連絡袋',mat:'したじき',tablet:'タブレット',tissue:'ティッシュ',brush:'歯ブラシ',rope:'なわとび',umbrella:'傘',cap:'帽子',lunchbox:'お弁当',art:'絵の具',flute:'リコーダー',ruler:'定規',letter:'文字キャラ'};
   let storageAvailable = true;
   let items = loadItems();
   let history = loadHistory();
+  let scheduleOverrides = loadOverrides();
+  let adminUnlocked=false, pendingAdminAction=null, pinMode='unlock', pinAttempts=0, pinLockUntil=0;
+  const roamingState=new Map();
+  let roamerTimer=0;
   let calendarMonth = new Date(new Date().getFullYear(), new Date().getMonth(), 1);
   let selectedDay = todayKey();
   let activeView = 'home';
@@ -1285,7 +1300,7 @@ root.MCQRCode=req("index");root.MCQRCodeLevels=req("QRErrorCorrectLevel");
   let toastTimer = 0;
   let cheerItemId = '';
   let selectedFriendId = '';
-  const ROOM_LIMIT = 24;
+  const ROOM_LIMIT = 200; // All registered items have a place in the room.
   const captureCanvas = document.createElement('canvas');
   const captureContext = captureCanvas.getContext('2d', {willReadFrequently:true});
 
@@ -1308,14 +1323,18 @@ root.MCQRCode=req("index");root.MCQRCodeLevels=req("QRErrorCorrectLevel");
       const id=i.id.toUpperCase();
       if (seen.has(id)) throw new Error('同じQR識別子が重複しています');
       seen.add(id);
-      return {id,name:i.name.trim(),checkedOn: typeof i.checkedOn === 'string' && /^\d{4}-\d\d-\d\d$/.test(i.checkedOn) ? i.checkedOn : '',addedOn:typeof i.addedOn==='string'&&/^\d{4}-\d\d-\d\d$/.test(i.addedOn)?i.addedOn:''};
+      const name=i.name.trim();
+      const preset=CATALOG.find(x=>x.name===name);
+      const type=typeof i.type==='string'&&Object.hasOwn(TYPE_LABELS,i.type)?i.type:(preset?.type||inferLegacyType(name));
+      const weekdays=Array.isArray(i.weekdays)?[...new Set(i.weekdays.filter(d=>Number.isInteger(d)&&d>=0&&d<=6))].sort((a,b)=>a-b):[...(preset?.weekdays||SCHOOL_DAYS)];
+      return {id,name,checkedOn: typeof i.checkedOn === 'string' && /^\d{4}-\d\d-\d\d$/.test(i.checkedOn) ? i.checkedOn : '',addedOn:typeof i.addedOn==='string'&&/^\d{4}-\d\d-\d\d$/.test(i.addedOn)?i.addedOn:'',type,weekdays};
     });
   }
   function loadItems() {
     try {
       const raw=localStorage.getItem(STORAGE_KEY);
       if (raw) return normalizeItems(JSON.parse(raw));
-      const sample=['筆箱','連絡帳','水筒','宿題ノート','上履き'].map(name=>({id:uuid(),name,checkedOn:'',addedOn:todayKey()}));
+      const sample=CATALOG.slice(0,5).map(c=>({id:uuid(),name:c.name,checkedOn:'',addedOn:todayKey(),type:c.type,weekdays:[...c.weekdays]}));
       localStorage.setItem(STORAGE_KEY,JSON.stringify({version:1,items:sample}));
       return sample;
     } catch(err) {
@@ -1336,7 +1355,7 @@ root.MCQRCode=req("index");root.MCQRCodeLevels=req("QRErrorCorrectLevel");
         if(!e || typeof e.id!=='string' || !UUID_RE.test(e.id.toUpperCase()) || typeof e.name!=='string' || !e.name.trim() || e.name.length>35)continue;
         const id=e.id.toUpperCase();if(ids.has(id))continue;ids.add(id);expected.push({id,name:e.name.trim()});
       }
-      out[date]={expected,checked:day.checked.map(s=>String(s).toUpperCase()).filter(s=>ids.has(s)),rest:day.rest===true};
+      out[date]={expected,checked:day.checked.map(s=>String(s).toUpperCase()).filter(s=>ids.has(s)),scanned:Array.isArray(day.scanned)?day.scanned.map(s=>String(s).toUpperCase()).filter(s=>ids.has(s)):null,rest:day.rest===true};
     }
     return out;
   }
@@ -1344,14 +1363,55 @@ root.MCQRCode=req("index");root.MCQRCodeLevels=req("QRErrorCorrectLevel");
     try{const raw=localStorage.getItem(HISTORY_KEY);return raw?normalizeHistory(JSON.parse(raw)):Object.create(null);}
     catch(err){console.warn('History unavailable:',err);return Object.create(null);}
   }
+  function loadOverrides(){
+    try{
+      const raw=localStorage.getItem(OVERRIDES_KEY);if(!raw)return Object.create(null);
+      return normalizeOverrides(JSON.parse(raw));
+    }catch(err){console.warn('Schedule overrides unavailable',err);return Object.create(null);}
+  }
+  function normalizeOverrides(value){
+    const result=Object.create(null);
+    if(!value||typeof value!=='object'||Array.isArray(value))return result;
+    const keys=Object.keys(value);if(keys.length>730)throw new Error('日付の設定が多すぎます');
+    for(const day of keys){
+      if(!/^\d{4}-\d\d-\d\d$/.test(day)||!value[day]||typeof value[day]!=='object')continue;
+      const entry=Object.create(null);
+      for(const [id,flag] of Object.entries(value[day]))if(UUID_RE.test(id.toUpperCase())&&typeof flag==='boolean')entry[id.toUpperCase()]=flag;
+      if(Object.keys(entry).length)result[day]=entry;
+    }
+    return result;
+  }
+  function saveOverrides(){
+    try{localStorage.setItem(OVERRIDES_KEY,JSON.stringify(scheduleOverrides));return true;}
+    catch(err){showToast('日付の設定を保存できなかったよ');return false;}
+  }
+  function weekdayFor(date){const [y,m,d]=date.split('-').map(Number);return new Date(y,m-1,d).getDay();}
+  function isRequiredOn(item,date){
+    const v=scheduleOverrides[date]?.[item.id];
+    return typeof v==='boolean'?v:item.weekdays.includes(weekdayFor(date));
+  }
+  function requiredItems(date=todayKey()){return items.filter(i=>isRequiredOn(i,date));}
+  function isDateString(date){if(!/^\d{4}-\d\d-\d\d$/.test(date))return false;const [y,m,d]=date.split('-').map(Number);return todayKey(new Date(y,m-1,d))===date;}
+  function inferLegacyType(name){
+    if(/筆箱|ふでばこ|ペンケース|鉛筆|えんぴつ|ペン/.test(name))return 'pencil';
+    if(/水筒|すいとう|ボトル/.test(name))return 'bottle';
+    if(/ノート|連絡帳|教科書|ドリル|自由帳|日記|本/.test(name))return 'book';
+    if(/上履き|上ばき|うわばき|シューズ|靴/.test(name))return 'shoe';
+    if(/袋|バッグ|ランドセル|鞄|ポーチ/.test(name))return 'bag';
+    if(/ハンカチ|タオル|布/.test(name))return 'cloth';
+    return 'letter';
+  }
   function saveHistory(){
     try{localStorage.setItem(HISTORY_KEY,JSON.stringify(history));return true;}
     catch(err){console.warn('Cannot save history:',err);showToast('履歴を保存できません。空き容量を確認してね。');return false;}
   }
   function syncTodayHistory(){
     const date=todayKey();if(!items.length && !history[date])return;
-    const rest=!!history[date]?.rest;
-    history[date]={expected:items.map(i=>({id:i.id,name:i.name})),checked:items.filter(i=>i.checkedOn===date).map(i=>i.id),rest};
+    const previous=history[date],rest=!!previous?.rest;
+    const expected=requiredItems(date),checked=expected.filter(i=>i.checkedOn===date).map(i=>i.id);
+    const priorScanned=Array.isArray(previous?.scanned)?previous.scanned:(previous?.checked||[]);
+    history[date]={expected:expected.map(i=>({id:i.id,name:i.name})),checked,
+      scanned:priorScanned.filter(id=>checked.includes(id)),rest};
     const keys=Object.keys(history).sort();for(const d of keys.slice(0,Math.max(0,keys.length-730)))delete history[d];
     saveHistory();
   }
@@ -1362,6 +1422,7 @@ root.MCQRCode=req("index");root.MCQRCodeLevels=req("QRErrorCorrectLevel");
     return weekday===0||weekday===6||dayData(date)?.rest===true;
   }
   function toggleRestDay(){
+    if(!adminUnlocked){requestAdmin(()=>{toggleRestDay();adminUnlocked=false;});return;}
     const date=selectedDay;if(date>todayKey())return;
     const existing=dayData(date);const rest=!(existing&&existing.rest===true);
     if(!existing)history[date]={expected:[],checked:[],rest};
@@ -1382,11 +1443,11 @@ root.MCQRCode=req("index");root.MCQRCodeLevels=req("QRErrorCorrectLevel");
       const date=todayKey(new Date(year,currentMonth,d)),record=dayData(date),count=record?record.checked.length:0,total=record?record.expected.length:0;
       const isRest=!!record?.rest;
       const complete=!!record && !isRest && total>0 && count===total;
-      const status=isRest?'rest':record?(complete?'complete':'partial'):'';
+      const status=isRest?'rest':record?(total===0?'noitems':complete?'complete':'partial'):'';
       const b=makeText('button','calendar-cell'+(record?' has-record':'')+(status?' '+status:'')+(selectedDay===date?' selected':'')+(date===todayKey()?' today':''),'');
       b.type='button';b.disabled=date>todayKey();b.setAttribute('aria-pressed',selectedDay===date?'true':'false');
       b.setAttribute('aria-label',`${currentMonth+1}月${d}日：${isRest?'おやすみ':record?`${count}/${total}確認済み`:'記録なし'}`);
-      b.append(makeText('span','day-number',String(d)),makeText('span','day-note',isRest?'おやすみ':record?`${count}/${total}`:'·'));
+      b.append(makeText('span','day-number',String(d)),makeText('span','day-note',isRest?'おやすみ':record?(total===0?'対象なし':`${count}/${total}`):'·'));
       b.addEventListener('click',()=>{selectedDay=date;renderCalendar();});grid.append(b);
     }
     const record=dayData(selectedDay), detail=$('calendarDetail');detail.replaceChildren();
@@ -1396,7 +1457,7 @@ root.MCQRCode=req("index");root.MCQRCodeLevels=req("QRErrorCorrectLevel");
     const [y,m,d]=selectedDay.split('-').map(Number);detail.append(makeText('h2','',`${m}月${d}日（${'日月火水木金土'[new Date(y,m-1,d).getDay()]}）`));
     if(!record){detail.append(makeText('div','history-empty','この日の記録はないよ。記録はアプリを使った日から残るよ。'));return;}
     if(record.rest){detail.append(makeText('p','rest-detail-label','この日はおやすみ。元気度の集計には入らないよ。'));}
-    detail.append(makeText('p','',`${record.checked.length} / ${record.expected.length} こ確認できたよ`));
+    detail.append(makeText('p','',record.expected.length?`${record.checked.length} / ${record.expected.length} こ確認できたよ`:'この日に必要な持ち物は設定されていないよ。'));
     const columns=makeText('div','history-columns','');const checked=makeText('div','history-col',''),unchecked=makeText('div','history-col unchecked','');
     const checkedIds=new Set(record.checked);
     for(const [col,title,values] of [[checked,'✓ 確認できた',record.expected.filter(i=>checkedIds.has(i.id))],[unchecked,'○ 未確認',record.expected.filter(i=>!checkedIds.has(i.id))]]){
@@ -1425,20 +1486,19 @@ root.MCQRCode=req("index");root.MCQRCodeLevels=req("QRErrorCorrectLevel");
   function makeText(tag,cls,text) {
     const el=document.createElement(tag);if(cls)el.className=cls;el.textContent=text;return el;
   }
-  function render() {
-    const today=todayKey();const checked=items.filter(i=>i.checkedOn===today).length;
-    const dt = new Date();$('dateLabel').textContent=`${dt.getMonth()+1}月${dt.getDate()}日（${'日月火水木金土'[dt.getDay()]}）のチェック`;
-    $('progressCount').textContent=`${checked} / ${items.length}`;
-    $('progressFill').style.width=items.length?`${checked/items.length*100}%`:'0%';
-    const pct=items.length?Math.round(checked/items.length*100):0;
+  function render(){
+    const today=todayKey(),needed=requiredItems(today),checked=needed.filter(i=>i.checkedOn===today).length;
+    const dt=new Date();$('dateLabel').textContent=`${dt.getMonth()+1}月${dt.getDate()}日（${DAY_NAMES[dt.getDay()]}）のチェック`;
+    const total=needed.length,pct=total?Math.round(checked/total*100):0;
+    $('progressCount').textContent=`${checked} / ${total}`;
+    $('progressFill').style.width=pct+'%';
     $('progressGauge').style.setProperty('--pct',pct+'%');$('progressGauge').setAttribute('aria-valuenow',String(pct));$('gaugePercent').textContent=pct+'%';
-    $('scanProgressCount').textContent=`${checked} / ${items.length}`;$('scanProgressFill').style.width=pct+'%';
-    $('progressMessage').textContent=items.length===0?'まずは「もちもの」から登録してね':checked===items.length?'ぜんぶそろったよ！ おつかれさま 🎉':`${items.length-checked}こ、まだ確認していないよ`;
-    $('remainingText').textContent=items.length===0?'持ち物なし':checked===items.length?'ぜんぶ確認済み':`のこり ${items.length-checked}こ`;
+    $('scanProgressCount').textContent=`${checked} / ${total}`;$('scanProgressFill').style.width=pct+'%';
+    $('progressMessage').textContent=total===0?'今日はチェックする持ち物がないよ':checked===total?'ぜんぶそろったよ！ おつかれさま 🎉':`${total-checked}こ、まだ確認していないよ`;
+    $('remainingText').textContent=total===0?'きょうはおやすみ':checked===total?'ぜんぶ確認済み':`のこり ${total-checked}こ`;
     $('manageCount').textContent=`${items.length}こ`;
-    renderHomeList(today);
-    renderFriends();
-    renderManageList();
+    renderHomeList(today);renderFriends();
+    if(adminUnlocked && activeView==='manage'){renderManageList();renderPlanDate();}
     if(activeView==='calendar')renderCalendar();
   }
   // ===== もちものフレンズのおへや (pure SVG/CSS, lightweight iPhone 8 friendly) =====
@@ -1446,19 +1506,19 @@ root.MCQRCode=req("index");root.MCQRCodeLevels=req("QRErrorCorrectLevel");
     pencil:{base:'#ead3bd',detail:'#d1af91'},bottle:{base:'#c6ddd8',detail:'#8dbbb3'},
     book:{base:'#d8d6e9',detail:'#aaa3ce'},shoe:{base:'#f5e6cf',detail:'#cfba95'},
     bag:{base:'#e6c5c6',detail:'#ca969b'},cloth:{base:'#e0e6c9',detail:'#b2c49a'},
-    other:{base:'#e2d7cc',detail:'#baa99a'}
+    gym:{base:'#f4d7ce',detail:'#cfa99d'},lunch:{base:'#f2e0bb',detail:'#d4b978'},
+    folder:{base:'#d8e5d5',detail:'#a4bfa5'},mat:{base:'#cfdce6',detail:'#a4bed1'},
+    tablet:{base:'#c9d4db',detail:'#889da8'},tissue:{base:'#e6dbeb',detail:'#b8a5ca'},
+    brush:{base:'#e5e7ba',detail:'#b7bb88'},rope:{base:'#d8dbd2',detail:'#9cab99'},
+    umbrella:{base:'#d6dbe9',detail:'#9eacd0'},cap:{base:'#f0d4bb',detail:'#cda785'},
+    lunchbox:{base:'#e3d4ce',detail:'#c0a69c'},art:{base:'#e2dbe9',detail:'#b6aad1'},
+    flute:{base:'#e9dbc8',detail:'#c1ad8e'},ruler:{base:'#dbdec4',detail:'#b0b58b'},
+    letter:{base:'#ead4c1',detail:'#b89179'}
   };
-  function friendType(name){
-    if(/筆箱|ふでばこ|ペンケース|鉛筆|えんぴつ|ペン/.test(name))return 'pencil';
-    if(/水筒|すいとう|ボトル|水入れ/.test(name))return 'bottle';
-    if(/ノート|連絡帳|れんらく|教科書|ドリル|本|日記|自由帳/.test(name))return 'book';
-    if(/上履き|上ばき|うわばき|シューズ|靴|くつ/.test(name))return 'shoe';
-    if(/袋|バッグ|ランドセル|かばん|鞄|ポーチ/.test(name))return 'bag';
-    if(/ハンカチ|タオル|布|ふきん/.test(name))return 'cloth';
-    return 'other';
-  }
-  function friendSvg(name,mood){
-    const type=friendType(name),color=FRIEND_COLORS[type];
+  function friendType(item){return TYPE_LABELS[item.type]?item.type:inferLegacyType(item.name);}
+  function svgEscape(str){return String(str).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
+  function friendSvg(item,mood){
+    const name=item.name,type=friendType(item),color=FRIEND_COLORS[type];
     const stroke='#625b56',base=color.base,detail=color.detail;
     const path=(d,fill=base,extra='')=>`<path d="${d}" fill="${fill}" ${extra}/>`;
     const rect=(x,y,w,h,r,fill=base,extra='')=>`<rect x="${x}" y="${y}" width="${w}" height="${h}" rx="${r}" fill="${fill}" ${extra}/>`;
@@ -1492,9 +1552,53 @@ root.MCQRCode=req("index");root.MCQRCodeLevels=req("QRErrorCorrectLevel");
     }else if(type==='cloth'){
       body=rect(20,23,72,72,7)+rect(27,30,58,58,4,'none',`stroke="${detail}" stroke-width="0.8" stroke-dasharray="3 3"`)
           +line('M20 33 Q26 26 31 23',`stroke="${detail}"`);faceY=62;
+    }else if(type==='gym'){
+      body=path('M34 24 L43 18 H68 L78 24 L99 43 L88 60 L78 54 L78 93 H34 V54 L23 60 L12 43 Z')
+        +line('M43 20 Q55 39 68 20 M23 58 L33 49 M78 50 L87 59',`stroke="${detail}"`);faceY=69;
+    }else if(type==='lunch'){
+      body=path('M28 42 Q18 34 27 28 Q37 23 43 32 Q52 20 59 29 Q68 19 77 29 Q89 34 80 43 L89 82 Q91 94 77 96 H34 Q20 95 22 83 Z')
+        +line('M30 44 Q53 53 80 44',`stroke="${detail}"`);faceY=74;
+    }else if(type==='folder'){
+      body=path('M18 34 H46 L53 23 H91 Q96 23 96 30 V91 Q96 96 89 96 H22 Q17 96 17 90 Z')
+        +line('M20 44 H93 M26 53 H85',`stroke="${detail}"`);faceY=74;
+    }else if(type==='mat'){
+      body=rect(14,25,82,64,5)+rect(20,32,70,49,3,'#eaf3ef',`stroke="${detail}" stroke-width="0.6"`);faceY=64;
+    }else if(type==='tablet'){
+      body=rect(24,14,65,87,8,detail)+rect(29,20,55,69,4,'#e9f0f0')
+        +`<circle cx="56" cy="95" r="2" fill="#fafafa" stroke="${stroke}" stroke-width="0.6"/>`;faceY=67;
+    }else if(type==='tissue'){
+      body=rect(16,40,80,54,8)+path('M39 42 Q26 30 43 19 Q55 12 59 24 Q76 18 72 35 L66 43 Z','#fff')
+        +rect(40,40,32,7,3,detail);faceY=72;
+    }else if(type==='brush'){
+      body=rect(45,16,20,82,8)+rect(43,10,24,22,4,'#faf9ef')
+        +line('M47 11 V24 M53 11 V24 M59 11 V24 M65 11 V24',`stroke="${detail}" stroke-width="2"`);faceY=69;
+    }else if(type==='rope'){
+      body=`<ellipse cx="55" cy="55" rx="29" ry="34" stroke="${detail}" stroke-width="9" fill="none"/>`
+        +rect(16,79,14,24,4)+rect(80,79,14,24,4);faceY=70;
+    }else if(type==='umbrella'){
+      body=path('M14 51 Q19 10 55 10 Q91 10 97 51 Q86 42 76 52 Q66 42 55 51 Q44 42 34 52 Q24 42 14 51 Z')
+        +line('M55 51 V92 Q55 110 70 101',`stroke="${detail}" stroke-width="4"`);faceY=38;
+    }else if(type==='cap'){
+      body=path('M20 64 Q17 26 56 23 Q93 26 90 64 Q92 74 78 77 H27 Q17 76 20 64 Z')
+        +path('M29 76 Q66 90 107 75 Q94 93 64 97 Q39 94 29 76 Z',detail);faceY=61;
+    }else if(type==='lunchbox'){
+      body=rect(19,39,77,55,11)+rect(22,35,71,11,5,detail)
+        +line('M44 36 V33 Q44 28 49 28 H66 Q71 28 71 33 V36',`stroke="${detail}" stroke-width="3"`);faceY=73;
+    }else if(type==='art'){
+      body=rect(19,35,76,60,9)+rect(23,31,68,10,4,detail)
+        +line('M41 32 V28 Q41 23 48 23 H67 Q74 23 74 28 V32',`stroke="${detail}" stroke-width="2"`)
+        +`<circle cx="42" cy="48" r="4" fill="#a3c8c7" stroke="none"/><circle cx="55" cy="48" r="4" fill="#dab7ad" stroke="none"/><circle cx="69" cy="48" r="4" fill="#d5c19c" stroke="none"/>`;faceY=76;
+    }else if(type==='flute'){
+      body=rect(44,12,24,87,6)+line('M45 29 H67',`stroke="${detail}"`);
+      for(let i=0;i<4;i++)body+=`<circle cx="56" cy="${43+i*12}" r="2.6" fill="${detail}" stroke="none"/>`;
+      faceY=74;faceX=56;
+    }else if(type==='ruler'){
+      body=rect(31,11,48,94,3)+Array.from({length:8},(_,i)=>line(`M32 ${20+i*10} H${i%2?42:48}`,`stroke="${detail}" stroke-width="1"`)).join('');faceY=78;
     }else{
-      body=rect(21,26,70,69,9)+line('M28 41 H84',`stroke="${detail}"`)
-          +line('M40 31 H72',`stroke="${detail}"`);faceY=73;
+      // Unknown item: its initial character IS the character, with small eyes and limbs.
+      const first=Array.from(name.trim())[0]||'?';
+      body=`<text x="55" y="84" text-anchor="middle" font-size="70" font-weight="800" font-family="sans-serif" fill="${base}" stroke="${stroke}" stroke-width="0.7" paint-order="stroke">${svgEscape(first)}</text>`;
+      faceY=59;faceX=55;
     }
     const back=mood<35,side=mood>=35&&mood<63;
     let expression='';
@@ -1527,16 +1631,19 @@ root.MCQRCode=req("index");root.MCQRCodeLevels=req("QRErrorCorrectLevel");
     for(let back=0;back<36 && opportunities<7;back++){
       const day=new Date(end.getFullYear(),end.getMonth(),end.getDate()-back),date=todayKey(day);
       if(date<start)break;
-      if(isRestDay(date))continue;
       const record=dayData(date);
-      // 当日は未チェックを減点せず、確認できた項目だけがすぐ嬉しくなる。
-      if(date===today&&!record?.checked.includes(item.id))continue;
-      if(record && record.expected.length && !record.expected.some(e=>e.id===item.id))continue;
-      opportunities++;if(record?.checked.includes(item.id))successes++;
+      if(record?.rest)continue;
+      const required=record?record.expected.some(e=>e.id===item.id):isRequiredOn(item,date);
+      if(!required)continue;
+      if([0,6].includes(weekdayFor(date))&&!scheduleOverrides[date]?.[item.id])continue;
+      // Today is never a missed day until tomorrow.
+      const scanned=record?.scanned===null?record?.checked.includes(item.id):record?.scanned?.includes(item.id);
+      if(date===today&&!scanned)continue;
+      opportunities++;if(scanned)successes++;
     }
     const value=Math.max(8,Math.min(95,Math.round(50+50*(2*successes-opportunities)/(opportunities+2))));
     // 土日のスキャンでも、その場の嬉しい反応を見せる。
-    return isRestDay(today)&&item.checkedOn===today?Math.min(95,value+17):value;
+    return isRestDay(today)&&dayData(today)?.scanned?.includes(item.id)?Math.min(95,value+17):value;
   }
   function friendPosition(index,count,mood){
     let cols,rows,baseX,baseY;
@@ -1561,15 +1668,21 @@ root.MCQRCode=req("index");root.MCQRCodeLevels=req("QRErrorCorrectLevel");
     layer.replaceChildren();
     if(!items.length){stage.style.height='242px';layer.append(makeText('div','friend-empty','まだ だれも いないよ。もちものを 登録してね。'));$('friendsMiniStatus').textContent='おへやの じゅんび中';return;}
     const members=items.slice(0,ROOM_LIMIT),rows=members.length<=5?2:Math.ceil(members.length/(members.length<=6?3:4));
+    roamingState.clear();
     stage.style.height=Math.max(258,rows*124+38)+'px';
     const moods=[];
     for(const [i,item] of members.entries()){
       const mood=friendMood(item),p=friendPosition(i,members.length,mood);moods.push(mood);
       const button=makeText('button','friend-avatar'+(cheerItemId===item.id?' is-celebrating':''),'');
       button.type='button';button.style.left=p.x+'%';button.style.top=p.y+'%';button.style.setProperty('--friend-scale',p.scale);
-      button.style.setProperty('--drift',(4+(i%3)*3)+'px');button.style.setProperty('--drift-time',(4.1+(i%5)*0.75)+'s');button.style.setProperty('--drift-delay',(-i*.73)+'s');
+      button.style.setProperty('--drift',(4+(i%3)*3)+'px');button.style.setProperty('--drift-time',(4.1+(i%5)*0.75)+'s');      button.style.setProperty('--drift-delay',(-i*.73)+'s');
+      button.dataset.homeX=String(p.x);button.dataset.homeY=String(p.y);
+      button.dataset.mood=String(mood);button.dataset.index=String(i);
+      button.style.setProperty('--walk-duration',(4.2-2.3*mood/100).toFixed(2)+'s');
+      roamingState.set(item.id,{next:performance.now()+1000+(i%5)*700});
       button.setAttribute('aria-label',item.name+'、'+(mood<35?'向こう向き':mood<63?'横向き':'にこにこ')+'、'+(item.checkedOn===todayKey()?'本日確認済み':'本日未確認'));
-      const motion=makeText('span','friend-motion','');motion.innerHTML=friendSvg(item.name,mood);
+      button.dataset.friendId=item.id;
+      const motion=makeText('span','friend-motion','');motion.innerHTML=friendSvg(item,mood);
       const name=makeText('span','friend-name',item.name);
       if(item.checkedOn===todayKey()){
         const mark=makeText('span','friend-check','✓');mark.setAttribute('aria-label','今日確認済み');motion.append(mark);
@@ -1583,30 +1696,88 @@ root.MCQRCode=req("index");root.MCQRCodeLevels=req("QRErrorCorrectLevel");
       });
       layer.append(button);
     }
-    if(items.length>ROOM_LIMIT){const note=makeText('div','friend-overflow',`ほかにも ${items.length-ROOM_LIMIT} こ、おへやにいるよ`);layer.append(note);}
+    // All items are present; only the number of simultaneous movers is throttled for older iPhones.
     const avg=moods.reduce((a,b)=>a+b,0)/moods.length;
     $('friendsMiniStatus').textContent=avg>=68?'みんな にこにこ':avg>=42?'のんびり しているよ':'ちょっと ひかえめ';
     if(cheerItemId){const i=items.find(t=>t.id===cheerItemId);if(i)$('friendsMessage').textContent=`${i.name}が うれしそう！ みつけてくれて ありがとう。`;cheerItemId='';}
     else if(selectedFriendId){const item=items.find(i=>i.id===selectedFriendId);if(!item){selectedFriendId='';$('friendsMessage').textContent='QRを読み取ると みんなが少しずつ近づいてくるよ。';}}
   }
 
+  function roamFriends(){
+    if(activeView!=='home'||document.hidden||window.matchMedia('(prefers-reduced-motion: reduce)').matches)return;
+    const now=performance.now(),all=$('friendsLayer').querySelectorAll('.friend-avatar');
+    // Throttle the number of active motion transitions on an older device.
+    let movers=0;
+    for(const avatar of all){
+      const id=avatar.dataset.friendId, r=roamingState.get(id);if(!r||r.next>now)continue;
+      const mood=Number(avatar.dataset.mood)||50,energy=mood/100;
+      const likely=0.18+0.65*energy;
+      if(Math.random()<likely && movers<16){
+        const homeX=Number(avatar.dataset.homeX),homeY=Number(avatar.dataset.homeY);
+        // Low energy: gentle shuffling in the corners. High: lively, wider wandering.
+        const radiusX=2+Math.min(13,energy*12),radiusY=1.4+Math.min(10,energy*9);
+        const x=Math.max(15,Math.min(85,homeX+(Math.random()*2-1)*radiusX));
+        const y=Math.max(19,Math.min(87,homeY+(Math.random()*2-1)*radiusY));
+        avatar.style.left=x.toFixed(2)+'%';avatar.style.top=y.toFixed(2)+'%';
+        avatar.classList.toggle('is-roaming',energy>0.6);movers++;
+      }
+      r.next=now+(energy>0.7?1500:energy>0.4?2800:4800)+(Math.random()*1300);
+    }
+  }
   function renderHomeList(today) {
     const list=$('homeList');list.replaceChildren();
-    if(!items.length){list.append(makeText('div','empty-state','「もちもの」から持ち物を登録しよう'));return;}
-    for(const item of items){
+    const needed=requiredItems(today);
+    if(!needed.length){list.append(makeText('div','empty-state','今日は必要な持ち物がないよ。保護者の設定から変更できるよ。'));return;}
+    for(const item of needed){
       const checked=item.checkedOn===today;
       const b=makeText('button','item-row'+(checked?' is-done':''),'');b.type='button';b.setAttribute('aria-label',`${item.name}：${checked?'確認済み。チェックを外す':'未確認。手動でチェックする'}`);
       const dot=makeText('span','check-icon','✓');dot.setAttribute('aria-hidden','true');
       b.append(dot,makeText('span','item-name',item.name),makeText('span','item-status',checked?'確認済み':'未確認'));
-      b.addEventListener('click',()=>{item.checkedOn=checked?'':todayKey();saveItems();syncTodayHistory();render();showToast(checked?`${item.name} のチェックを外したよ`:`${item.name} を手動でチェックしたよ`);});
+      b.addEventListener('click',()=>{
+        item.checkedOn=checked?'':todayKey();saveItems();syncTodayHistory();
+        render();showToast(checked?`${item.name} のチェックを外したよ`:`${item.name} を手動でチェックしたよ`);
+      });
       list.append(b);
     }
   }
-  function renderManageList() {
+  function makeSmallFriend(item){const el=makeText('span','manage-friend-icon','');el.innerHTML=friendSvg(item,85);return el;}
+  function addCatalogItem(entry){
+    if(items.length>=200){showToast('登録できるのは200個までだよ');return;}
+    if(items.some(i=>i.name===entry.name)){showToast(`「${entry.name}」は登録済みだよ`);return;}
+    items.push({id:uuid(),name:entry.name,checkedOn:'',addedOn:todayKey(),type:entry.type,weekdays:[...entry.weekdays]});
+    saveItems();syncTodayHistory();render();showToast(`「${entry.name}」を登録したよ`);
+  }
+  function renderCatalog(){
+    const grid=$('catalogGrid');grid.replaceChildren();
+    for(const entry of CATALOG){
+      const b=makeText('button','catalog-item','');b.type='button';
+      const example={name:entry.name,type:entry.type},icon=makeSmallFriend(example);
+      b.append(icon,makeText('span','',entry.name));b.addEventListener('click',()=>addCatalogItem(entry));grid.append(b);
+    }
+  }
+  function renderManageList(){
+    if(!adminUnlocked)return;
     const list=$('manageList');list.replaceChildren();
     if(!items.length){list.append(makeText('div','empty-state','まだ持ち物がないよ'));return;}
     for(const item of items){
-      const row=makeText('div','manage-item','');row.append(makeText('div','manage-name',item.name));
+      const row=makeText('div','manage-item','');
+      const header=makeText('div','manage-item-head','');
+      header.append(makeSmallFriend(item),makeText('strong','manage-name',item.name));
+      const typeSelect=makeText('select','type-select','');typeSelect.setAttribute('aria-label',`${item.name}の絵柄`);
+      for(const [value,label] of Object.entries(TYPE_LABELS)){const option=document.createElement('option');option.value=value;option.textContent=label;option.selected=value===item.type;typeSelect.append(option);}
+      typeSelect.addEventListener('change',()=>{item.type=typeSelect.value;saveItems();render();});
+      header.append(typeSelect);row.append(header);
+      const weekdays=makeText('div','weekday-control','');weekdays.append(makeText('span','weekday-label','毎週ひつような曜日'));
+      const days=makeText('div','weekday-buttons','');
+      for(let d=0;d<7;d++){
+        const on=item.weekdays.includes(d),b=makeText('button','weekday-chip'+(on?' on':''),DAY_NAMES[d]);
+        b.type='button';b.setAttribute('aria-pressed',String(on));b.setAttribute('aria-label',`${item.name}：${DAY_NAMES[d]}曜日 ${on?'必要':'不要'}`);
+        b.addEventListener('click',()=>{
+          item.weekdays=on?item.weekdays.filter(x=>x!==d):[...item.weekdays,d].sort((a,b)=>a-b);
+          saveItems();syncTodayHistory();render();
+        });days.append(b);
+      }
+      weekdays.append(days);row.append(weekdays);
       const btns=makeText('div','manage-buttons','');
       for(const [label,action,cls] of [['QR','qr',''],['名前変更','rename',''],['削除','delete','danger']]){
         const b=makeText('button','mini-button'+(cls?' '+cls:''),label);b.type='button';
@@ -1615,22 +1786,56 @@ root.MCQRCode=req("index");root.MCQRCodeLevels=req("QRErrorCorrectLevel");
       row.append(btns);list.append(row);
     }
   }
-  function manageAction(action,id) {
+  function renderPlanDate(){
+    if(!adminUnlocked)return;
+    const date=$('planDate').value;
+    if(!isDateString(date))return;
+    const list=$('planList');list.replaceChildren();
+    if(!items.length){list.append(makeText('div','field-help','先に持ち物を登録してね。'));return;}
+    const day=weekdayFor(date);
+    list.append(makeText('p','plan-summary',`${date.replaceAll('-','/')}（${DAY_NAMES[day]}）に必要なもの：${requiredItems(date).length}個`));
+    for(const item of items){
+      const needed=isRequiredOn(item,date),label=makeText('label','plan-row','');
+      const input=document.createElement('input');input.type='checkbox';input.checked=needed;input.setAttribute('aria-label',item.name+'をこの日に必要にする');
+      input.addEventListener('change',()=>{
+        const baseline=item.weekdays.includes(day);
+        if(!scheduleOverrides[date])scheduleOverrides[date]=Object.create(null);
+        if(input.checked===baseline)delete scheduleOverrides[date][item.id];else scheduleOverrides[date][item.id]=input.checked;
+        if(!Object.keys(scheduleOverrides[date]).length)delete scheduleOverrides[date];
+        saveOverrides();if(date===todayKey())syncTodayHistory();render();
+      });
+      label.append(input,makeText('span','',item.name),makeText('small','',needed?'必要':'不要'));list.append(label);
+    }
+  }
+  function resetPlanDate(){
+    const date=$('planDate').value;
+    if(!isDateString(date))return;
+    delete scheduleOverrides[date];saveOverrides();if(date===todayKey())syncTodayHistory();render();
+    showToast('この日を毎週の曜日設定に戻したよ');
+  }
+  function manageAction(action,id){
+    if(!adminUnlocked)return;
     const item=items.find(x=>x.id===id);if(!item)return;
     if(action==='qr'){openQr(item);return;}
     if(action==='rename'){
       const name=window.prompt('持ち物の名前を変更',item.name);
       if(name===null)return;
-      const trimmed=name.trim();if(!trimmed || trimmed.length>35){showToast('名前は1〜35文字にしてね');return;}
+      const trimmed=name.trim();if(!trimmed||trimmed.length>35){showToast('名前は1〜35文字にしてね');return;}
       item.name=trimmed;saveItems();syncTodayHistory();render();showToast('名前を変更したよ');return;
     }
     if(action==='delete'){
       if(!window.confirm(`「${item.name}」を削除しますか？\nこの持ち物のQRシールは使えなくなります。`))return;
-      items=items.filter(x=>x.id!==id);saveItems();syncTodayHistory();render();showToast('持ち物を削除したよ');
+      items=items.filter(x=>x.id!==id);
+      for(const day of Object.keys(scheduleOverrides)){
+        delete scheduleOverrides[day][id];if(!Object.keys(scheduleOverrides[day]).length)delete scheduleOverrides[day];
+      }
+      saveItems();saveOverrides();syncTodayHistory();render();showToast('持ち物を削除したよ');
     }
   }
-  function switchView(view) {
+  function switchView(view){
     const names=['home','scanner','calendar','manage'];if(!names.includes(view))return;
+    if(view==='manage'&&!adminUnlocked){requestAdmin(()=>switchView('manage'));return;}
+    if(activeView==='manage'&&view!=='manage')adminUnlocked=false;
     if(activeView==='scanner' && view!=='scanner')stopScanner();
     activeView=view;
     for(const name of names)$(`${name}View`).hidden=name!==view;
@@ -1700,8 +1905,14 @@ root.MCQRCode=req("index");root.MCQRCodeLevels=req("QRErrorCorrectLevel");
     if(!v.startsWith(PREFIX)||!UUID_RE.test(v.slice(PREFIX.length))){setScannerMessage('error','このアプリ用のQRコードではないみたい。','!');return;}
     const item=items.find(x=>x.id===v.slice(PREFIX.length));
     if(!item){setScannerMessage('error','この持ち物は登録されていないよ。バックアップの復元が必要かも。','!');return;}
-    if(item.checkedOn===todayKey()){setScannerMessage('duplicate',`「${item.name}」はもう確認できているよ。`,'✓');return;}
-    item.checkedOn=todayKey();cheerItemId=item.id;saveItems();syncTodayHistory();render();setScannerMessage('success',`「${item.name}」を確認できたよ！ 次のQRをどうぞ。`,'✓');
+    if(!isRequiredOn(item,todayKey())){setScannerMessage('duplicate',`「${item.name}」は今日はチェック対象外だよ。`,'○');return;}
+    const date=todayKey(),wasScanned=dayData(date)?.scanned?.includes(item.id);
+    if(item.checkedOn===date&&wasScanned){setScannerMessage('duplicate',`「${item.name}」はもうQRで確認できているよ。`,'✓');return;}
+    item.checkedOn=date;saveItems();syncTodayHistory();
+    if(!Array.isArray(history[date].scanned))history[date].scanned=[];
+    if(!history[date].scanned.includes(item.id))history[date].scanned.push(item.id);
+    saveHistory();cheerItemId=item.id;render();
+    setScannerMessage('success',`「${item.name}」をQRで確認できたよ！ 次のQRをどうぞ。`,'✓');
   }
   function qrFor(item){
     if(typeof window.MCQRCode!=='function')throw new Error('QR作成ライブラリがありません');
@@ -1738,7 +1949,7 @@ root.MCQRCode=req("index");root.MCQRCodeLevels=req("QRErrorCorrectLevel");
     window.print();
   }
   function downloadBackup(){
-    const file=new Blob([JSON.stringify({app:'mochimono-check',version:2,exportedAt:new Date().toISOString(),items,history},null,2)],{type:'application/json'});
+    const file=new Blob([JSON.stringify({app:'mochimono-check',version:3,exportedAt:new Date().toISOString(),items,history,scheduleOverrides},null,2)],{type:'application/json'});
     const url=URL.createObjectURL(file),a=document.createElement('a');a.href=url;a.download=`もちものバックアップ_${todayKey()}.json`;
     document.body.append(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),3000);
     showToast('バックアップのダウンロードを開始したよ');
@@ -1748,13 +1959,74 @@ root.MCQRCode=req("index");root.MCQRCodeLevels=req("QRErrorCorrectLevel");
     try{
       if(file.size>200000)throw new Error('ファイルが大きすぎます');
       const raw=await file.text();const data=JSON.parse(raw);
-      if(data.app!=='mochimono-check'||![1,2].includes(data.version))throw new Error('このアプリのバックアップではありません');
-      const next=normalizeItems(data),nextHistory=data.version===2?normalizeHistory(data.history):Object.create(null);
+      if(data.app!=='mochimono-check'||![1,2,3].includes(data.version))throw new Error('このアプリのバックアップではありません');
+      const next=normalizeItems(data),nextHistory=data.version>=2?normalizeHistory(data.history):Object.create(null);
+      const nextOverrides=data.version>=3?normalizeOverrides(data.scheduleOverrides):Object.create(null);
       const note=data.version===1?'（旧バックアップに履歴は含まれません）':'';
       if(!window.confirm(`バックアップの ${next.length} 個の持ち物と履歴で現在のデータを置き換えますか？${note}`))return;
-      items=next;history=nextHistory;saveItems();saveHistory();syncTodayHistory();render();showToast('バックアップを復元したよ。QRシールもそのまま使えるよ。');
+      items=next;history=nextHistory;scheduleOverrides=nextOverrides;saveItems();saveHistory();saveOverrides();syncTodayHistory();render();showToast('バックアップを復元したよ。QRシールもそのまま使えるよ。');
     }catch(err){showToast(`復元できません：${err.message}`);}finally{event.target.value='';}
   }
+  // Parent PIN is an offline convenience lock, not server-enforced authentication.
+  function getPinConfig(){
+    try{
+      const raw=localStorage.getItem(PIN_KEY);if(raw===null)return null;
+      const data=JSON.parse(raw);
+      if(!data||typeof data.salt!=='string'||!/^[0-9a-f]{32}$/.test(data.salt)||!/^[0-9a-f]{64}$/.test(data.hash))throw new Error('PINの保存情報を確認できません');
+      return data;
+    }catch(err){throw new Error('PINの情報に問題があります。保護者に確認してください');}
+  }
+  function hex(bytes){return Array.from(bytes,x=>x.toString(16).padStart(2,'0')).join('');}
+  async function derivePin(pin,salt){
+    if(!crypto.subtle)throw new Error('安全な通信（HTTPS）で開いてください');
+    const key=await crypto.subtle.importKey('raw',new TextEncoder().encode(pin),'PBKDF2',false,['deriveBits']);
+    return hex(new Uint8Array(await crypto.subtle.deriveBits({name:'PBKDF2',salt:Uint8Array.from(salt.match(/.{2}/g),x=>parseInt(x,16)),iterations:120000,hash:'SHA-256'},key,256)));
+  }
+  function pinError(message){$('pinError').textContent=message;}
+  function showPinModal(mode){
+    pinMode=mode;$('pinModal').hidden=false;$('pinInput').value='';$('pinConfirmInput').value='';pinError('');
+    const setup=mode!=='unlock';$('pinConfirmRow').hidden=!setup;
+    $('pinConfirmInput').required=setup;
+    $('pinTitle').textContent=mode==='setup'?'保護者用PINを作る':mode==='change'?'PINを変更する':'保護者用PIN';
+    $('pinHint').textContent=mode==='setup'?'最初に4〜8桁の数字を決めてね。次からこの数字で設定を開けるよ。':mode==='change'?'新しいPINを2回入力してね。':'登録した4〜8桁の数字を入力してね。';
+    $('pinSubmit').textContent=mode==='unlock'?'ロックを解除':'PINを保存';
+    setTimeout(()=>$('pinInput').focus(),80);
+  }
+  function requestAdmin(action){
+    if(adminUnlocked){action();return;}
+    pendingAdminAction=action;
+    try{showPinModal(getPinConfig()?'unlock':'setup');}
+    catch(err){showToast(err.message);pendingAdminAction=null;}
+  }
+  function closePinModal(){ $('pinModal').hidden=true;pendingAdminAction=null;pinError(''); }
+  async function submitPin(event){
+    event.preventDefault();const pin=$('pinInput').value,confirm=$('pinConfirmInput').value,button=$('pinSubmit');
+    if(!/^\d{4,8}$/.test(pin)){pinError('4〜8桁の数字を入力してね');return;}
+    if(Date.now()<pinLockUntil){pinError('続けて間違えたので、少し時間をおいてね');return;}
+    button.disabled=true;
+    try{
+      if(pinMode==='setup'||pinMode==='change'){
+        if(pin!==confirm){pinError('確認用のPINと一致しないよ');return;}
+        const salt=hex(crypto.getRandomValues(new Uint8Array(16)));
+        localStorage.setItem(PIN_KEY,JSON.stringify({salt,hash:await derivePin(pin,salt)}));
+      }else{
+        const stored=getPinConfig();if(!stored){pinError('PINの設定がありません');return;}
+        const proposed=await derivePin(pin,stored.salt);
+        let diff=0;for(let i=0;i<proposed.length;i++)diff|=proposed.charCodeAt(i)^stored.hash.charCodeAt(i);
+        if(diff!==0){
+          pinAttempts++;if(pinAttempts>=5){pinLockUntil=Date.now()+30000;pinAttempts=0;}
+          pinError('PINが違うよ'+(pinLockUntil>Date.now()?'。30秒後に試してね':''));$('pinInput').value='';return;
+        }
+      }
+      pinAttempts=0;adminUnlocked=true;$('pinModal').hidden=true;
+      const onSuccess=pendingAdminAction;pendingAdminAction=null;
+      if(onSuccess)onSuccess();
+      if(pinMode==='change')showToast('PINを変更したよ');
+      else if(pinMode==='setup')showToast('保護者用PINを設定したよ');
+    }catch(err){pinError('PINを保存・確認できません：'+(err?.message||'原因不明'));}
+    finally{button.disabled=false;}
+  }
+  function changePin(){if(!adminUnlocked)return;pendingAdminAction=null;showPinModal('change');}
   function refreshIfDayChanged(){
     const date=todayKey();if(refreshIfDayChanged.last!==date){refreshIfDayChanged.last=date;syncTodayHistory();render();}
   }
@@ -1778,11 +2050,17 @@ root.MCQRCode=req("index");root.MCQRCodeLevels=req("QRErrorCorrectLevel");
     $('calendarPrev').addEventListener('click',()=>changeCalendarMonth(-1));
     $('calendarNext').addEventListener('click',()=>changeCalendarMonth(1));
     $('calendarRestToggle').addEventListener('click',toggleRestDay);
+    $('pinForm').addEventListener('submit',event=>{void submitPin(event);});
+    $('closePinModal').addEventListener('click',closePinModal);
+    $('pinModal').addEventListener('click',e=>{if(e.target===$('pinModal'))closePinModal();});
+    $('changePinButton').addEventListener('click',changePin);
+    $('planDate').addEventListener('change',renderPlanDate);
+    $('planResetButton').addEventListener('click',resetPlanDate);
     $('retryCamera').addEventListener('click',()=>{stopScanner();void startScanner();});
     $('addForm').addEventListener('submit',event=>{
       event.preventDefault();if(items.length>=200){showToast('登録できるのは200個までだよ');return;}
       const input=$('newItemName'),name=input.value.trim();if(!name||name.length>35){showToast('名前は1〜35文字にしてね');return;}
-      items.push({id:uuid(),name,checkedOn:'',addedOn:todayKey()});saveItems();syncTodayHistory();input.value='';render();showToast(`「${name}」を登録したよ`);
+      items.push({id:uuid(),name,checkedOn:'',addedOn:todayKey(),type:'letter',weekdays:[...SCHOOL_DAYS]});saveItems();syncTodayHistory();input.value='';render();showToast(`「${name}」を登録したよ`);
     });
     $('closeQrModal').addEventListener('click',closeQr);
     $('qrModal').addEventListener('click',e=>{if(e.target===$('qrModal'))closeQr();});
@@ -1792,12 +2070,14 @@ root.MCQRCode=req("index");root.MCQRCodeLevels=req("QRErrorCorrectLevel");
     $('exportButton').addEventListener('click',downloadBackup);
     $('importButton').addEventListener('click',()=>$('importFile').click());
     $('importFile').addEventListener('change',importBackup);
-    document.addEventListener('visibilitychange',()=>{if(document.hidden)stopScanner();else if(activeView==='scanner'){$('retryCamera').hidden=false;setScannerMessage('','「カメラをもう一度起動」を押してね。','◎');}});
+    document.addEventListener('visibilitychange',()=>{if(document.hidden){stopScanner();adminUnlocked=false;if(activeView==='manage')switchView('home');closePinModal();} else if(activeView==='scanner'){$('retryCamera').hidden=false;setScannerMessage('','「カメラをもう一度起動」を押してね。','◎');}});
     window.addEventListener('pagehide',stopScanner);
     window.addEventListener('pageshow',()=>{render();refreshIfDayChanged.last=todayKey();});
     setInterval(refreshIfDayChanged,60000);
   }
-  document.querySelector('.brand-kicker').textContent='もちものフレンズ v1.3';
+  document.querySelector('.brand-kicker').textContent='もちものフレンズ v1.4';
+  $('planDate').value=todayKey();renderCatalog();
+  roamerTimer=setInterval(roamFriends,1600);
   syncTodayHistory();installEvents();render();checkOfflineReadiness();
   if(!storageAvailable)showToast('端末内に保存できない状態だよ。Safariの設定を確認してね。');
 })();

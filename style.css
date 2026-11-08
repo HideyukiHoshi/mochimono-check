@@ -59,3 +59,38 @@
 @media(max-width:360px){.friends-card{padding:11px 9px}.friend-avatar{width:67px}.friend-silhouette{width:67px;height:79px}.friend-name{font-size:9px;max-width:72px}.friends-head h2{font-size:17px}.friends-status{font-size:9px}}
 @media(prefers-reduced-motion:reduce){.friend-motion,.friend-avatar.is-celebrating .friend-motion{animation:none!important}.friend-avatar{transition:none}}
 @media print{.friends-card{display:none!important}}
+
+/* v1.4: parent settings, weekday schedule, roaming and item design library */
+.admin-notice{padding:11px 12px;border-radius:12px;background:#fff8e8;border:1px solid #f0dfb6;color:#886a36;font-size:12px;line-height:1.5;margin-bottom:12px}
+.field-help{font-size:11px;line-height:1.6;color:#7d8b7e;margin:6px 0 10px}.field-label{display:block;font-size:12px;color:#536f61;font-weight:800;margin:10px 0 6px}
+.catalog-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:7px;margin-top:12px}
+.catalog-item{min-width:0;border:1px solid #e6e7da;background:#fffdfa;border-radius:12px;padding:5px 2px 8px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:1px;color:#43534a;font-size:10px;font-weight:800;min-height:91px;overflow:hidden}
+.catalog-item:active{background:#f1f9f3}.catalog-item .manage-friend-icon{width:52px;height:59px;margin:0 auto}.catalog-item svg{width:52px;height:59px;display:block}.catalog-item span:last-child{max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.manage-friend-icon{width:40px;height:45px;flex:none;display:flex;align-items:center;justify-content:center;overflow:hidden}
+.manage-friend-icon svg{height:48px;width:46px;display:block}
+.manage-item-head{display:flex;align-items:center;gap:8px;margin-bottom:12px;min-width:0}
+.manage-item-head strong{flex:1;min-width:0;font-size:13px;overflow-wrap:anywhere}
+.manage-item .manage-name{margin:0}
+.type-select{max-width:108px;width:108px;font-size:11px;border:1px solid #d6e1d7;border-radius:9px;padding:7px 4px;background:#fff;color:#466655;min-height:37px}
+.weekday-control{width:100%;margin-bottom:9px}.weekday-label{font-size:10px;font-weight:800;color:#667c70;display:block;margin:0 0 6px}
+.weekday-buttons{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:5px}
+.weekday-chip{border:1px solid #dce7df;border-radius:9px;min-height:37px;font-size:12px;font-weight:750;background:#f7faf7;color:#92a39a;padding:2px 0}
+.weekday-chip.on{background:#d6f0df;border-color:#75b58d;color:#0e6b48;box-shadow:inset 0 0 0 1px #75b58d}
+.plan-date{display:block;width:100%;border:1px solid #d5e4db;border-radius:11px;background:#fff;color:#245642;padding:10px;min-height:44px;font-size:16px}
+.plan-list{display:grid;gap:5px;max-height:300px;overflow-y:auto;margin:11px 0;padding-right:2px}
+.plan-row{display:flex;align-items:center;gap:10px;min-height:44px;border:1px solid #e5eee7;border-radius:10px;padding:7px 10px;background:#fff;font-size:12px;font-weight:750;color:#385a48}
+.plan-row input{width:20px;height:20px;accent-color:#258862;flex:none}
+.plan-row span{flex:1}.plan-row small{font-size:11px;color:#7e9184}
+.plan-summary{margin:6px 0 9px;color:#457760;font-size:12px;font-weight:800}
+.pin-card{text-align:left;max-width:360px}.pin-card h2{margin-top:6px}.pin-card .primary-button{width:100%;min-height:46px;margin-top:6px}
+.pin-input{width:100%;height:49px;background:#f8faf8;color:#1a543b;border:1px solid #c6dacd;border-radius:10px;font-size:21px;letter-spacing:.14em;text-align:center;padding:6px}
+.pin-error{color:#bc4842!important;font-size:12px!important;font-weight:700;min-height:20px;margin:8px 0!important}
+.calendar-cell.noitems{background:#f3f6f4}
+.friend-avatar{transition:left var(--walk-duration,3s) ease-in-out,top var(--walk-duration,3s) ease-in-out,transform .7s}
+.friend-avatar.is-roaming .friend-motion{animation-duration:calc(var(--drift-time,5s) * .73)}
+@media(max-width:360px){.catalog-grid{gap:5px}.catalog-item{font-size:9px;min-height:85px}.catalog-item .manage-friend-icon{width:46px}.weekday-buttons{gap:3px}.weekday-chip{font-size:11px}}
+@media(prefers-reduced-motion:reduce){.friend-avatar{transition:none!important}.friend-motion{animation:none!important}}
+@media print{.catalog-grid,.admin-notice,.pin-card,.plan-list{display:none!important}}
+.manage-item{display:block}
+.manage-item-head{width:100%}
+.manage-buttons{justify-content:flex-end;flex-wrap:wrap}

@@ -43,7 +43,7 @@
             <div id="friendsLayer" class="friends-layer"></div>
           </div>
           <div id="friendsMessage" class="friends-message" role="status" aria-live="polite">チェックすると みんなが少しずつ近づいてくるよ。</div>
-          <div class="friends-note">よくチェックする子ほど、こちらを向いて近づいてくるよ。土日はおやすみ。</div>
+          <div class="friends-note">持ち物たちはおへやをうろうろ。QRをよくスキャンすると、元気になって近づいてくるよ。</div>
         </section>
         <div class="progress-card">
           <div class="progress-layout">
@@ -61,7 +61,7 @@
         <button type="button" class="scan-cta" id="startScanButton"><span class="scan-cta-icon">▣</span><span>QRコードをスキャン<span class="cta-sub">カメラでつづけて読み取れるよ</span></span><span aria-hidden="true">›</span></button>
         <div class="section-heading"><h2>もちものリスト</h2><span id="remainingText">—</span></div>
         <div id="homeList" class="item-list"></div>
-        <p class="micro-note">※ リストの名前をタップすると、手動でもチェックできます。</p>
+        <p class="micro-note">※ その日に必要な持ち物だけを表示するよ。リストをタップすると手動でチェックできます。</p>
       </section>
 
       <section id="scannerView" class="view" hidden>
@@ -79,7 +79,7 @@
       </section>
 
       <section id="calendarView" class="view" hidden>
-        <div class="section-title"><h1>カレンダー</h1><p>その日にチェックできたものを振り返ろう。</p></div>
+        <div class="section-title"><h1>カレンダー</h1><p>その日に必要だったものと、確認できたものを振り返ろう。</p></div>
         <div class="calendar-card">
           <div class="calendar-toolbar">
             <button type="button" id="calendarPrev" aria-label="前の月">‹</button>
@@ -97,23 +97,38 @@
       </section>
 
       <section id="manageView" class="view" hidden>
-        <div class="section-title"><h1>もちものの管理</h1><p>名前を登録して、QRシールを作ろう。</p></div>
-        <form id="addForm" class="add-form"><label for="newItemName">新しいもちもの</label><div class="add-form-row"><input id="newItemName" name="name" type="text" maxlength="35" placeholder="例：給食袋" autocomplete="off" required><button type="submit">追加</button></div></form>
-        <div class="section-heading"><h2>登録しているもの</h2><span id="manageCount">0個</span></div>
+        <div class="section-title"><h1>保護者の設定</h1><p>持ち物、QRシール、曜日と日ごとの予定を管理するよ。</p></div>
+        <div class="admin-notice">🔒 この画面は保護者用です。ほかのタブに戻るとロックされます。</div>
+        <section class="actions-card"><h2>イラストから追加</h2><p>使いたい持ち物をタップして登録できるよ。登録後は曜日やQRを設定してね。</p><div id="catalogGrid" class="catalog-grid"></div></section>
+        <form id="addForm" class="add-form"><label for="newItemName">リストにない持ち物を追加</label><p class="field-help">イラストがない持ち物は、名前の最初の文字に目と手足がつくよ。</p><div class="add-form-row"><input id="newItemName" name="name" type="text" maxlength="35" placeholder="例：図工バッグ" autocomplete="off" required><button type="submit">追加</button></div></form>
+        <section class="actions-card schedule-card"><h2>日付ごとの持ち物</h2><p>基本の曜日設定とは別に、特定の日だけ必要・不要を変更できるよ。行事や特別授業の日に使ってね。</p><label for="planDate" class="field-label">設定したい日付</label><input id="planDate" type="date" class="plan-date"><div id="planList" class="plan-list"></div><button id="planResetButton" type="button" class="outline-button">この日の特別設定を解除</button></section>
+        <div class="section-heading"><h2>登録しているもの・曜日設定</h2><span id="manageCount">0個</span></div><p class="field-help">月〜日から、毎週必要な曜日を選んでね。何も選ばなければ「毎週なし」になるよ。</p>
         <div id="manageList" class="manage-list"></div>
         <div class="actions-card"><h2>QRシールをまとめて印刷</h2><p>登録した全アイテムのQRを、印刷用の画面にまとめるよ。</p><button id="printAllButton" class="outline-button" type="button">QRシールを印刷 / PDF保存</button></div>
         <div class="actions-card"><h2>データのバックアップ</h2><p>別の端末への移行や、データ消失に備えて保存できます。復元すれば同じQRシールが使えるよ。</p><div class="stack-actions"><button id="exportButton" class="outline-button" type="button">バックアップを書き出す</button><button id="importButton" class="outline-button" type="button">バックアップから復元</button></div><input type="file" id="importFile" accept="application/json,.json" hidden></div>
-        <p class="micro-note">データはこのiPhone内に保存します。Safari版とホーム画面版では保存場所が別になる場合があるため、登録や復元はホーム画面版で行ってください。</p>
+        <div class="actions-card"><h2>保護者用PIN</h2><p>4〜8桁の数字で、この設定画面を保護します。</p><button id="changePinButton" type="button" class="outline-button">PINを変更する</button><p class="field-help">このPINは端末内で確認します。Webアプリのため、厳密なアクセス制御ではありません。PINを忘れた場合に備えてバックアップを保存してください。</p></div><p class="micro-note">データはこのiPhone内に保存されます。Safari版とホーム画面版では保存場所が別になることがあります。</p>
       </section>
     </main>
     <nav class="bottom-nav" aria-label="メニュー">
       <button type="button" data-view="home" class="nav-button active" aria-current="page"><span class="nav-icon">⌂</span><span>きょう</span></button>
       <button type="button" data-view="scanner" class="nav-button"><span class="nav-icon">▣</span><span>スキャン</span></button>
       <button type="button" data-view="calendar" class="nav-button"><span class="nav-icon">▦</span><span>きろく</span></button>
-      <button type="button" data-view="manage" class="nav-button"><span class="nav-icon">☷</span><span>もちもの</span></button>
+      <button type="button" data-view="manage" class="nav-button"><span class="nav-icon">⚙</span><span>保護者</span></button>
     </nav>
   </div>
 
+  <div id="pinModal" class="modal-backdrop" hidden>
+    <form id="pinForm" class="modal-card pin-card" role="dialog" aria-modal="true" aria-labelledby="pinTitle">
+      <button type="button" class="modal-close" id="closePinModal" aria-label="閉じる">×</button>
+      <div class="modal-kicker">保護者用のロック</div><h2 id="pinTitle">PINを入力</h2>
+      <p id="pinHint">保護者用の数字を入力してね。</p>
+      <label for="pinInput" class="field-label">4〜8桁の数字</label>
+      <input id="pinInput" type="password" inputmode="numeric" pattern="[0-9]{4,8}" minlength="4" maxlength="8" autocomplete="off" required class="pin-input">
+      <div id="pinConfirmRow" hidden><label for="pinConfirmInput" class="field-label">もう一度入力</label><input id="pinConfirmInput" type="password" inputmode="numeric" pattern="[0-9]{4,8}" minlength="4" maxlength="8" autocomplete="off" class="pin-input"></div>
+      <p id="pinError" class="pin-error" role="alert"></p>
+      <button id="pinSubmit" type="submit" class="primary-button">ロックを解除</button>
+    </form>
+  </div>
   <div id="qrModal" class="modal-backdrop" hidden>
     <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="qrModalTitle">
       <button type="button" class="modal-close" id="closeQrModal" aria-label="閉じる">×</button>
