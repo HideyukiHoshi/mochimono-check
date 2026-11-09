@@ -8,14 +8,14 @@
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="default">
   <meta name="apple-mobile-web-app-title" content="もちもちもちもの">
-  <link rel="manifest" href="./manifest.webmanifest?v=160">
-  <link rel="apple-touch-icon" href="./apple-touch-icon.png?v=160">
-  <link rel="icon" type="image/png" href="./icon-192.png?v=160">
-  <link rel="stylesheet" href="./style.css?v=160">
+  <link rel="manifest" href="./manifest.webmanifest?v=171">
+  <link rel="apple-touch-icon" href="./apple-touch-icon.png?v=171">
+  <link rel="icon" type="image/png" href="./icon-192.png?v=171">
+  <link rel="stylesheet" href="./style.css?v=171">
   <title>もちもちもちもの</title>
-  <script src="./qr-core.js?v=160" defer></script>
+  <script src="./qr-core.js?v=171" defer></script>
   <script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.js" defer></script>
-  <script src="./app.js?v=160" defer></script>
+  <script src="./app.js?v=171" defer></script>
 </head>
 <body>
   <div class="app-shell">
@@ -23,7 +23,7 @@
       <div class="brand">
         <div class="brand-icon" aria-hidden="true">も</div>
         <div>
-          <div class="brand-kicker">おうちのフレンズ · v1.6</div>
+          <div class="brand-kicker">おうちのフレンズ · v1.7.1</div>
           <div class="brand-name">もちもちもちもの</div>
         </div>
       </div>
@@ -78,7 +78,7 @@
 
         <div class="section-heading"><h2>きょうの もちもの</h2><span id="remainingText">—</span></div>
         <div id="homeList" class="item-list"></div>
-        <p class="micro-note">※ 「今日はもって帰らなくてよかった」を押すと、その日はチェック不要にできます。</p><p class="app-version" data-app-version>Version 1.6.0</p>
+        <p class="micro-note">※ 「今日はもって帰らなくてよかった」を押すと、その日はチェック不要にできます。</p><p class="app-version" data-app-version>Version 1.7.0</p>
       </section>
 
       <section id="scannerView" class="view" hidden>
@@ -106,8 +106,19 @@
         <div class="section-title"><h1>保護者の設定</h1><p>持ち物の登録や曜日設定は保護者だけが変更できます。</p></div>
         <div id="adminAuth" class="auth-card"></div>
         <div id="adminPanel" hidden>
+          <div class="admin-panel-header">
+            <span class="friends-status">保護者モード</span>
+            <button type="button" class="mini-button" id="lockAdminButton">🔒 ロック</button>
+          </div>
+          <div class="admin-menu" role="tablist" aria-label="保護者の設定メニュー">
+            <button type="button" class="admin-menu-button is-active" id="adminTabItems" data-admin-target="items" role="tab" aria-controls="adminPageItems" aria-selected="true">もちもの追加・編集</button>
+            <button type="button" class="admin-menu-button" id="adminTabCalendar" data-admin-target="calendar" role="tab" aria-controls="adminPageCalendar" aria-selected="false">カレンダー管理</button>
+            <button type="button" class="admin-menu-button" id="adminTabQr" data-admin-target="qr" role="tab" aria-controls="adminPageQr" aria-selected="false">QR管理・一括印刷</button>
+            <button type="button" class="admin-menu-button" id="adminTabData" data-admin-target="data" role="tab" aria-controls="adminPageData" aria-selected="false">データ管理</button>
+          </div>
+          <div class="admin-page" id="adminPageItems" data-admin-page="items" role="tabpanel" aria-labelledby="adminTabItems">
           <div class="admin-section soft-card">
-            <div class="admin-topline"><h2>あたらしい もちもの</h2><button type="button" class="mini-button" id="lockAdminButton">ロック</button></div>
+            <h2>あたらしい もちもの</h2>
             <form id="addItemForm" class="form-stack">
               <label>もちもの名<input type="text" id="itemNameInput" maxlength="24" placeholder="例：うわばき" required></label>
               <label>種類<select id="itemKindSelect"></select></label>
@@ -120,6 +131,13 @@
           </div>
 
           <div class="admin-section soft-card">
+            <h2>登録した もちもの</h2>
+            <div id="adminItemsList" class="admin-items-list"></div>
+          </div>
+
+          </div>
+          <div class="admin-page" id="adminPageCalendar" data-admin-page="calendar" role="tabpanel" aria-labelledby="adminTabCalendar" hidden>
+          <div class="admin-section soft-card">
             <h2>日付ごとの設定</h2>
             <p class="micro-note">行事などで必要なものが変わる日は、ここで設定できるよ。</p>
             <label class="admin-date-label">変更する日付 <input id="overrideDate" type="date"></label>
@@ -127,15 +145,35 @@
             <div id="overrideItems" class="override-items"></div>
             <button type="button" class="primary-button" id="saveOverrideButton">この日の設定を保存</button>
           </div>
-          <div class="admin-section soft-card">
-            <h2>登録した もちもの</h2>
-            <div id="adminItemsList" class="admin-items-list"></div>
           </div>
-
+          <div class="admin-page" id="adminPageQr" data-admin-page="qr" role="tabpanel" aria-labelledby="adminTabQr" hidden>
+          <div class="admin-section soft-card">
+            <div class="admin-topline"><h2>QR一括印刷</h2><span id="qrSelectionCount" class="count-chip" role="status">0こ選択中</span></div>
+            <p class="micro-note">印刷したい持ち物を選んでね。印刷済みのQR番号は変更されないよ。</p>
+            <div class="qr-quick-actions">
+              <button type="button" class="pill-button" id="selectAllQrButton">全部選ぶ</button>
+              <button type="button" class="pill-button" id="selectTodayQrButton">今日の分</button>
+              <button type="button" class="pill-button" id="clearQrButton">選択を外す</button>
+            </div>
+            <div id="qrManageList" class="qr-manage-list"></div>
+            <div class="qr-print-options">
+              <label>QRの大きさ
+                <select id="qrPrintSize"><option value="normal">ふつう（A4・3列）</option><option value="large">大きめ（A4・2列）</option></select>
+              </label>
+              <label>同じQRの枚数
+                <select id="qrCopyCount"><option value="1">1枚ずつ</option><option value="2">2枚ずつ</option><option value="3">3枚ずつ</option></select>
+              </label>
+            </div>
+            <button type="button" class="primary-button print-preview-button" id="previewBulkQrButton">選んだQRを印刷用に並べる</button>
+            <p class="micro-note">次の画面で配置を確認してから、iPhoneの印刷機能を使えるよ。印刷画面が開かないときはSafariの共有メニューから「プリント」を選んでね。</p>
+          </div>
+          </div>
+          <div class="admin-page" id="adminPageData" data-admin-page="data" role="tabpanel" aria-labelledby="adminTabData" hidden>
           <div class="admin-section soft-card">
             <h2>バックアップ</h2>
             <div class="two-buttons"><button type="button" class="secondary-button" id="exportButton">バックアップを書き出す</button><label class="file-label secondary-button">復元する<input id="importInput" type="file" accept="application/json" hidden></label></div>
           </div>
+        </div>          </div>
         </div>
       </section>
     </main>
@@ -155,6 +193,16 @@
       <div class="two-buttons"><button type="button" class="secondary-button" id="printQrButton">印刷しやすい表示</button><button class="primary-button" value="ok">閉じる</button></div>
     </form>
   </dialog>
+
+  <section id="bulkPrintOverlay" class="bulk-print-overlay" role="dialog" aria-modal="true" aria-label="QRシール印刷用シート" hidden>
+    <div class="bulk-print-toolbar">
+      <button type="button" class="secondary-button" id="closeBulkPrintButton">‹ もどる</button>
+      <div class="bulk-print-title"><strong>QRシール印刷</strong><small id="bulkPrintInfo">A4印刷プレビュー</small></div>
+      <button type="button" class="primary-button" id="runBulkPrintButton">印刷 / PDF</button>
+    </div>
+    <p class="print-help">AirPrintで印刷できるよ。印刷画面が出ないときはSafariで同じページを開き、共有 → プリントを選んでね。</p>
+    <div id="bulkPrintSheet" class="bulk-print-sheet" aria-label="印刷するQRシールの一覧"></div>
+  </section>
 
   <div id="celebratePopup" class="celebrate-popup" hidden>
     <div class="celebrate-card">

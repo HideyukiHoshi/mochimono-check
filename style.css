@@ -89,3 +89,60 @@ main{padding:14px 14px 18px}.hero{padding:6px 4px 14px}.eyebrow{display:inline-f
   .item-card{padding:12px}.item-actions>.pill-button{flex:1;min-width:calc(50% - 6px);min-height:44px}
 }
 @media (prefers-reduced-motion: reduce){.friend,.progress-fill{transition-duration:.01ms !important}.celebrate-card,.mochi-burst{animation:none !important}}
+
+/* v1.7 — separated guardian pages and offline bulk QR label printing */
+.admin-panel-header{display:flex;justify-content:space-between;align-items:center;gap:10px;margin-bottom:12px}
+.admin-menu{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:9px;margin-bottom:15px}
+.admin-menu-button{min-height:52px;padding:9px 8px;border-radius:17px;background:#fffdfb;border:1px solid #ecd8cf;color:#76655e;font-size:13px;line-height:1.35;font-weight:700;box-shadow:0 4px 12px rgba(140,114,106,.06)}
+.admin-menu-button.is-active{background:#fff0e9;border-color:#edae9c;color:#92594e;box-shadow:inset 0 0 0 1px rgba(237,174,156,.3)}
+.admin-page[hidden]{display:none!important}.admin-page .soft-card{margin-bottom:12px}
+.count-chip{background:#fff3ed;border:1px solid #f0d1c8;border-radius:999px;padding:6px 10px;font-size:12px;color:#946455;white-space:nowrap}
+.qr-quick-actions{display:flex;flex-wrap:wrap;gap:8px}.qr-quick-actions button{flex:1;min-width:82px}
+.qr-manage-list{display:grid;gap:8px;max-height:360px;overflow-y:auto;padding:1px 0 4px}
+.qr-manage-item{display:flex;align-items:center;justify-content:space-between;gap:8px;border:1px solid #f0ddd4;border-radius:15px;padding:7px 9px;background:#fff;min-height:54px}
+.qr-select-label{display:flex;align-items:center;gap:9px;min-width:0;flex:1;min-height:44px}
+.qr-select-label input{width:21px;height:21px;flex:none;accent-color:var(--accent)}.qr-manage-name{font-size:14px;line-height:1.35;overflow-wrap:anywhere;font-weight:700}
+.qr-print-options{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:9px}
+.qr-print-options label{display:grid;gap:6px;font-size:13px;font-weight:700}
+.qr-print-options select{min-width:0;width:100%;min-height:46px;background:#fff;border:1px solid var(--line);border-radius:12px;padding:8px 6px;font-size:13px;color:var(--ink)}
+.print-preview-button{min-height:52px;font-size:15px}
+body.bulk-print-open{overflow:hidden}
+.bulk-print-overlay{position:fixed;inset:0;z-index:200;background:#fff8f4;overflow:auto;padding:0 10px 26px}
+.bulk-print-toolbar{position:sticky;top:0;z-index:5;background:#fffdfa;border-bottom:1px solid #edd7cf;display:flex;align-items:center;justify-content:space-between;gap:8px;margin:0 -10px 12px;padding:10px 12px;box-shadow:0 6px 10px rgba(100,80,70,.06)}
+.bulk-print-toolbar .primary-button,.bulk-print-toolbar .secondary-button{padding:9px 10px;min-height:44px;border-radius:14px;font-size:13px;white-space:nowrap}
+.bulk-print-title{display:grid;min-width:0;text-align:center;font-size:14px}.bulk-print-title small{font-size:10px;color:var(--muted);font-weight:400}
+.print-help{font-size:12px;line-height:1.5;color:var(--muted);margin:4px auto 12px;max-width:650px}
+.bulk-print-sheet{background:#fff;max-width:840px;margin:0 auto;padding:9mm 6mm;min-height:280mm;display:grid;align-content:start;gap:2.5mm;box-shadow:0 6px 20px rgba(110,82,72,.12)}
+.bulk-print-sheet.cols-3{grid-template-columns:repeat(3,minmax(0,1fr))}.bulk-print-sheet.cols-2{grid-template-columns:repeat(2,minmax(0,1fr))}
+.bulk-label{border:1px dashed #d9c6be;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;break-inside:avoid;page-break-inside:avoid;min-width:0;padding:3mm 1mm;min-height:51mm;text-align:center}
+.cols-2 .bulk-label{min-height:74mm;padding:5mm 2mm}
+.bulk-label-name{font-size:13px;font-weight:800;color:#292929;line-height:1.3;overflow-wrap:anywhere}
+.bulk-label img{display:block;width:35mm;height:35mm;max-width:95%;object-fit:contain;image-rendering:pixelated}
+.cols-2 .bulk-label img{width:54mm;height:54mm}
+.bulk-label-caption{font-size:9px;color:#555}
+@media(max-width:374px){.qr-print-options{grid-template-columns:1fr}.admin-menu-button{font-size:12px}.bulk-print-toolbar .primary-button,.bulk-print-toolbar .secondary-button{font-size:12px;padding:8px}.bulk-print-sheet{padding:4mm 2mm}.bulk-label img{width:26mm;height:26mm}.cols-2 .bulk-label img{width:42mm;height:42mm}}
+@media print{
+  @page{size:A4 portrait;margin:10mm}
+  html,body{margin:0!important;padding:0!important;background:#fff!important;overflow:visible!important}
+  .app-shell,.celebrate-popup,.bulk-print-toolbar,.print-help{display:none!important}
+  .bulk-print-overlay{position:static!important;display:block!important;overflow:visible!important;inset:auto!important;margin:0!important;padding:0!important;background:#fff!important}
+  .bulk-print-sheet{display:grid!important;max-width:none!important;min-height:0!important;box-shadow:none!important;padding:0!important;gap:2mm!important}
+  .bulk-label{border:0.25mm dashed #bdbdbd!important;min-height:51mm!important;padding:2mm 1mm!important}
+  .cols-2 .bulk-label{min-height:75mm!important;padding:3mm 2mm!important}
+  .bulk-label img{width:35mm!important;height:35mm!important}
+  .cols-2 .bulk-label img{width:54mm!important;height:54mm!important}
+}
+
+/* v1.7.1 — airy room layout, without shrinking QR popups or list avatars */
+.room-scene{min-height:300px;height:300px;}
+.room-scene .friends-layer > .friend{
+  width:76px;height:76px;
+  transform-origin:top left;
+  transform:scale(var(--room-character-scale,.74));
+  will-change:left,top,transform;
+}
+.room-scene .friends-layer > .friend .label{bottom:-14px;left:50%;font-size:13px;line-height:1.15;width:max-content;max-width:100px;padding:2px 6px;border-radius:10px;background:rgba(255,253,250,.92);border:1px solid #efded5;color:#6e625d;text-overflow:ellipsis;white-space:nowrap;}
+@media (max-width:390px){
+  .room-scene{height:300px;min-height:300px;}
+  .room-scene .friends-layer > .friend{width:76px;height:76px;}
+}

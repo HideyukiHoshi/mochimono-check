@@ -1,5 +1,5 @@
 const STORAGE_KEY = 'mochimochi-mochimono-v15';
-const APP_VERSION = 'v1.6.0';
+const APP_VERSION = 'v1.7.1';
 const qrPrefix = 'MCM:';
 const weekdayNames = ['日','月','火','水','木','金','土'];
 const presetKinds = [
@@ -51,6 +51,9 @@ let pinLockedUntil = 0;
 let lastRenderedDay = ''; 
 let friendMotionTimer = null;
 let celebrateTimer = null;
+let currentAdminPage = 'items';
+let qrSelectedIds = new Set();
+let qrSelectionInitialized = false;
 
 const el = {};
 
@@ -89,6 +92,14 @@ function bindEvents(){
   document.getElementById('exportButton').addEventListener('click',exportBackup);
   document.getElementById('importInput').addEventListener('change',importBackup);
   document.getElementById('printQrButton').addEventListener('click',printCurrentQr);
+  document.querySelectorAll('[data-admin-target]').forEach(btn => btn.addEventListener('click',()=>switchAdminPage(btn.dataset.adminTarget)));
+  document.getElementById('selectAllQrButton').addEventListener('click',()=>setQrSelection(state.items.map(i=>i.id)));
+  document.getElementById('selectTodayQrButton').addEventListener('click',()=>setQrSelection(requiredItems().map(i=>i.id)));
+  document.getElementById('clearQrButton').addEventListener('click',()=>setQrSelection([]));
+  document.getElementById('previewBulkQrButton').addEventListener('click',showBulkPrintPreview);
+  document.getElementById('closeBulkPrintButton').addEventListener('click',closeBulkPrintPreview);
+  document.getElementById('runBulkPrintButton').addEventListener('click',()=>{if(typeof window.print==='function')window.print();else alert('Safariの共有メニューから「プリント」を選んでね。');});
+  document.addEventListener('keydown',ev=>{if(ev.key==='Escape' && !document.getElementById('bulkPrintOverlay').hidden)closeBulkPrintPreview();});
   const dateControl=document.getElementById('overrideDate');
   if(dateControl){dateControl.value=todayKey();dateControl.addEventListener('change',renderOverrideEditor);}
   document.getElementById('saveOverrideButton')?.addEventListener('click',saveOverrideDate);
@@ -181,7 +192,7 @@ function saveState(){
 
 function registerSW(){
   if('serviceWorker' in navigator){
-    navigator.serviceWorker.register('./sw.js?v=160',{updateViaCache:'none'})
+    navigator.serviceWorker.register('./sw.js?v=171',{updateViaCache:'none'})
       .then(reg=>{reg.update().catch(()=>{});})
       .catch(err=>console.warn('オフライン準備:',err));
   }
@@ -211,6 +222,7 @@ function updateOnlineBadge(){
 }
 
 function switchView(viewId){
+  closeBulkPrintPreview();
   currentView = viewId;
   document.querySelectorAll('.view').forEach(v=>v.hidden = v.id !== viewId);
   document.querySelectorAll('.tab').forEach(b=>b.classList.toggle('is-active', b.dataset.view === viewId));
@@ -399,36 +411,47 @@ function moveFriendsOnce(){
   if(!n)return;
   const room=el.friendsLayer.parentElement;
   const W=room.clientWidth||320;
-  const sprite=W<=390?68:76;
-  const colGap=12, rowGap=8, h=sprite+rowGap;
-  const cols=Math.min(n,Math.max(1,Math.floor((W-22+colGap)/(sprite+colGap))));
+  // Keep all character artwork at its original 76px coordinate system and
+  // scale just the *room* characters. Avatars and celebration remain readable.
+  const baseSize=76, sprite=60;
+  const colGap=24, rowGap=26;
+  const sideMargin=13, topMargin=28, bottomMargin=24;
+  const cols=Math.min(n,Math.max(1,Math.floor((W-2*sideMargin+colGap)/(sprite+colGap))));
   const rows=Math.ceil(n/cols);
-  const desiredH=Math.max(228, 26+rows*(sprite+rowGap)+12);
-  room.style.height=desiredH+'px';
+  const desiredH=Math.max(300,topMargin+rows*sprite+(rows-1)*rowGap+bottomMargin);
+  if(room.style.height!==desiredH+'px')room.style.height=desiredH+'px';
   const H=room.clientHeight||desiredH;
-  const leftPad=Math.max(10,(W-(cols*sprite+(cols-1)*colGap))/2);
-  const topPad=Math.max(12,(H-(rows*sprite+(rows-1)*rowGap))/2);
-  // Assign unique slots, even when many items have low energy.
+  const leftPad=Math.max(sideMargin,(W-(cols*sprite+(cols-1)*colGap))/2);
+  const usedRowsH=rows*sprite+(rows-1)*rowGap;
+  const topPad=Math.max(topMargin,(H-usedRowsH)/2);
   const slots=[];
   for(let row=0;row<rows;row++)for(let col=0;col<cols;col++){
-    if(slots.length<n)slots.push({x:leftPad+col*(sprite+colGap),y:topPad+row*h});
+    if(slots.length<n)slots.push({x:leftPad+col*(sprite+colGap),y:topPad+row*(sprite+rowGap)});
   }
   if(roomSlotOrder.length!==n)roomSlotOrder=Array.from({length:n},(_,i)=>i);
   roomMoveCount++;
-  const average=friends.reduce((sum,f)=>sum+activityScore(state.items.find(it=>it.id===f.dataset.itemId)),0)/n;
+  const byId=new Map(state.items.map(item=>[String(item.id),item]));
+  const average=friends.reduce((sum,f)=>{
+    const item=byId.get(f.dataset.itemId);
+    return sum+(item?activityScore(item):.5);
+  },0)/n;
   if(average>.5 && roomMoveCount%3===0 && n>1){
-    const a=Math.floor(rand(0,n)), b=(a+1+Math.floor(rand(0,n-1)))%n;
+    const a=Math.floor(rand(0,n)),b=(a+1+Math.floor(rand(0,n-1)))%n;
     [roomSlotOrder[a],roomSlotOrder[b]]=[roomSlotOrder[b],roomSlotOrder[a]];
   }
   friends.forEach((friendEl,i)=>{
-    const item=state.items.find(it=>it.id===friendEl.dataset.itemId);
+    const item=byId.get(friendEl.dataset.itemId);
     if(!item)return;
-    const energy=activityScore(item), slot=slots[roomSlotOrder[i]];
-    const move=energy<.3?2:energy<.6?5:8;
-    const x=Math.min(W-sprite-6,Math.max(6,slot.x+rand(-move,move)));
-    const y=Math.min(H-sprite-6,Math.max(6,slot.y+rand(-move,move)));
+    const energy=activityScore(item),slot=slots[roomSlotOrder[i]];
+    // The slot is 60px across; max visible width is approx 60px.
+    const scale=energy<.28?.67:energy<.75?.74:.79;
+    const visibleSize=baseSize*scale;
+    const movement=energy<.3?2:energy<.6?6:10;
+    const x=Math.min(W-visibleSize-7,Math.max(7,slot.x+rand(-movement,movement)));
+    const y=Math.min(H-visibleSize-7,Math.max(7,slot.y+rand(-movement,movement)));
     friendEl.style.left=`${x}px`;
     friendEl.style.top=`${y}px`;
+    friendEl.style.setProperty('--room-character-scale',scale.toFixed(3));
     friendEl.style.transitionDuration=energy<.3?'2.9s':energy<.6?'2.5s':'2.1s';
     friendEl.classList.toggle('back',energy<.28);
     friendEl.classList.toggle('side',energy>=.28&&energy<.5);
@@ -579,6 +602,7 @@ function weekdaySummary(days){ const arr = weekdayNames.filter((_,i)=>days[i]); 
 
 function renderAdmin(){
   if(currentView !== 'adminView') return;
+  el.adminAuth.hidden=false;
   const pinSet = !!(state.admin.pin || state.admin.legacyHash);
   if(!pinSet){
     el.adminAuth.innerHTML = `<div><strong>保護者用PINを作る</strong><p class="micro-note">4〜8桁の数字で、管理画面に入るためのPINを決めてね。</p></div><div class="pin-row"><input id="setPinInput" type="password" inputmode="numeric" maxlength="8" placeholder="PIN"></div><div class="pin-row"><input id="confirmPinInput" type="password" inputmode="numeric" maxlength="8" placeholder="もう一度PIN"><button type="button" class="primary-button" id="setPinButton">設定する</button></div>`;
@@ -617,12 +641,15 @@ function renderAdmin(){
     };
     return;
   }
-  el.adminAuth.innerHTML = `<div class="friends-status">保護者モードです</div>`;
+  el.adminAuth.innerHTML = '';
+  el.adminAuth.hidden = true;
   el.adminPanel.hidden = false;
+  showAdminPage();
   renderAdminItems();
   renderOverrideEditor();
+  renderQrManageList();
 }
-function lockAdmin(){ state.admin.unlocked = false; renderAdmin(); }
+function lockAdmin(){ closeBulkPrintPreview(); state.admin.unlocked = false; renderAdmin(); }
 function simpleHash(s){ return btoa('pin:'+s); } // Legacy v1.5 compatibility only.
 async function securePin(pin){
   const salt=crypto.getRandomValues(new Uint8Array(16));
@@ -664,7 +691,7 @@ function onAddItem(ev){
 
 function renderAdminItems(){
   if(!state.items.length){ el.adminItemsList.innerHTML = '<div class="micro-note">登録した持ち物はまだありません。</div>'; return; }
-  el.adminItemsList.innerHTML = state.items.map(item=>`<div class="admin-item" data-admin-id="${item.id}"><div class="admin-item-head"><div><div class="admin-item-name">${escapeHtml(item.name)}</div><div class="admin-item-kind">${escapeHtml(getKindDef(item.kind).label)}</div></div><button type="button" class="mini-button" data-action="qr" data-id="${item.id}">QR</button></div><div class="admin-item-actions"><select class="small-input kind-select" data-id="${item.id}">${presetKinds.map(k=>`<option value="${k.key}" ${k.key===item.kind?'selected':''}>${k.label}</option>`).join('')}</select><input class="small-input name-input" data-id="${item.id}" value="${escapeHtml(item.name)}"></div><div class="weekday-mini" id="days-${item.id}"></div><div class="admin-item-actions"><button type="button" class="secondary-button" data-action="save" data-id="${item.id}">変更を保存</button><button type="button" class="secondary-button" data-action="delete" data-id="${item.id}">削除</button></div></div>`).join('');
+  el.adminItemsList.innerHTML = state.items.map(item=>`<div class="admin-item" data-admin-id="${item.id}"><div class="admin-item-head"><div><div class="admin-item-name">${escapeHtml(item.name)}</div><div class="admin-item-kind">${escapeHtml(getKindDef(item.kind).label)}</div></div></div><div class="admin-item-actions"><select class="small-input kind-select" data-id="${item.id}">${presetKinds.map(k=>`<option value="${k.key}" ${k.key===item.kind?'selected':''}>${k.label}</option>`).join('')}</select><input class="small-input name-input" data-id="${item.id}" value="${escapeHtml(item.name)}"></div><div class="weekday-mini" id="days-${item.id}"></div><div class="admin-item-actions"><button type="button" class="secondary-button" data-action="save" data-id="${item.id}">変更を保存</button><button type="button" class="secondary-button" data-action="delete" data-id="${item.id}">削除</button></div></div>`).join('');
   state.items.forEach(item=>renderWeekdayEditor(item.days, document.getElementById(`days-${item.id}`), item.id));
   el.adminItemsList.querySelectorAll('[data-action="qr"]').forEach(btn=>btn.addEventListener('click',()=>showQrFor(btn.dataset.id)));
   el.adminItemsList.querySelectorAll('[data-action="save"]').forEach(btn=>btn.addEventListener('click',()=>saveAdminItem(btn.dataset.id)));
@@ -729,22 +756,101 @@ function showQrFor(id){
   try{
     state.currentQrItemId=id;
     state.lastQrValue=value;
-    const qr=new window.MCQRCode(-1,window.MCQRCodeLevels.M);
-    qr.addData(value);qr.make();
-    const canvas=el.qrCanvas;
-    const n=qr.getModuleCount(),quiet=4;
-    const size=232,cell=Math.max(2,Math.floor(size/(n+quiet*2)));
-    const s=cell*(n+quiet*2);
-    canvas.width=canvas.height=s;
-    const ctx=canvas.getContext('2d');
-    ctx.fillStyle='#fff';ctx.fillRect(0,0,s,s);
-    ctx.fillStyle='#1f1b1a';
-    for(let r=0;r<n;r++)for(let c=0;c<n;c++)if(qr.isDark(r,c))ctx.fillRect((c+quiet)*cell,(r+quiet)*cell,cell,cell);
+    drawQrCanvas(el.qrCanvas,value,232);
     el.qrDialogTitle.textContent=`${item.name} のQRコード`;
     el.qrDialogText.textContent='画像を保存または印刷して、持ち物に貼ってね。';
     el.qrDialog.showModal();
   }catch(err){console.error('QR生成:',err);alert('QRを作成できなかったよ：'+(err.message||'不明なエラー'));}
 }
+// Same QR generator and quiet zone as the individual printing flow.
+function drawQrCanvas(canvas,value,preferredSize=232){
+  if(typeof window.MCQRCode !== 'function')throw new Error('QR生成部品がありません');
+  const qr=new window.MCQRCode(-1,window.MCQRCodeLevels.M);
+  qr.addData(value);qr.make();
+  const n=qr.getModuleCount(),quiet=4;
+  const cell=Math.max(2,Math.floor(preferredSize/(n+quiet*2)));
+  const size=cell*(n+quiet*2);
+  canvas.width=canvas.height=size;
+  const ctx=canvas.getContext('2d');
+  ctx.fillStyle='#fff';ctx.fillRect(0,0,size,size);
+  ctx.fillStyle='#1f1b1a';
+  for(let r=0;r<n;r++)for(let c=0;c<n;c++)if(qr.isDark(r,c))ctx.fillRect((c+quiet)*cell,(r+quiet)*cell,cell,cell);
+  return canvas.toDataURL('image/png');
+}
+
+function switchAdminPage(page){
+  if(!state.admin.unlocked || currentView!=='adminView')return;
+  if(!['items','calendar','qr','data'].includes(page))return;
+  currentAdminPage=page;
+  showAdminPage();
+  if(page==='qr')renderQrManageList();
+}
+function showAdminPage(){
+  document.querySelectorAll('[data-admin-page]').forEach(p=>p.hidden=p.dataset.adminPage!==currentAdminPage);
+  document.querySelectorAll('[data-admin-target]').forEach(btn=>{
+    const active=btn.dataset.adminTarget===currentAdminPage;
+    btn.classList.toggle('is-active',active);
+    btn.setAttribute('aria-selected',active?'true':'false');
+  });
+}
+function setQrSelection(ids){
+  if(!state.admin.unlocked)return;
+  qrSelectionInitialized=true;
+  qrSelectedIds=new Set(ids.filter(id=>state.items.some(item=>item.id===id)));
+  renderQrManageList();
+}
+function renderQrManageList(){
+  if(currentView!=='adminView' || !state.admin.unlocked)return;
+  const list=document.getElementById('qrManageList');
+  const count=document.getElementById('qrSelectionCount');
+  if(!qrSelectionInitialized){qrSelectedIds=new Set(state.items.map(item=>item.id));qrSelectionInitialized=true;}
+  const exists=new Set(state.items.map(item=>item.id));
+  qrSelectedIds=new Set([...qrSelectedIds].filter(id=>exists.has(id)));
+  count.textContent=`${qrSelectedIds.size}こ選択中`;
+  if(!state.items.length){list.innerHTML='<p class="micro-note">まだもちものがないよ。「もちもの追加・編集」で登録してね。</p>';return;}
+  list.innerHTML=state.items.map(item=>{
+    const checked=qrSelectedIds.has(item.id)?'checked':'';
+    return `<div class="qr-manage-item"><label class="qr-select-label"><input type="checkbox" data-qr-select="${escapeHtml(item.id)}" ${checked}><span class="qr-manage-name">${escapeHtml(item.name)}</span></label><button type="button" class="mini-button" data-qr-view="${escapeHtml(item.id)}">表示</button></div>`;
+  }).join('');
+  list.querySelectorAll('[data-qr-select]').forEach(input=>input.addEventListener('change',()=>{
+    const id=input.dataset.qrSelect;
+    if(input.checked)qrSelectedIds.add(id);else qrSelectedIds.delete(id);
+    count.textContent=`${qrSelectedIds.size}こ選択中`;
+  }));
+  list.querySelectorAll('[data-qr-view]').forEach(btn=>btn.addEventListener('click',()=>showQrFor(btn.dataset.qrView)));
+}
+function showBulkPrintPreview(){
+  if(currentView!=='adminView' || !state.admin.unlocked)return;
+  const selected=state.items.filter(item=>qrSelectedIds.has(item.id));
+  if(!selected.length){alert('印刷したいもちものを1つ以上選んでね。');return;}
+  if(typeof window.MCQRCode!=='function'){alert('QRの部品を読み込めなかったよ。オンラインで一度開き直してね。');return;}
+  const columns=document.getElementById('qrPrintSize').value==='large'?2:3;
+  const copies=Math.min(3,Math.max(1,Number(document.getElementById('qrCopyCount').value)||1));
+  const sheet=document.getElementById('bulkPrintSheet');
+  const qrCanvas=document.createElement('canvas');
+  const markup=[];
+  try{
+    selected.forEach(item=>{
+      const value=`${item.qrPrefix||qrPrefix}${item.qrId}`;
+      const dataUrl=drawQrCanvas(qrCanvas,value,280);
+      for(let i=0;i<copies;i++){
+        markup.push(`<article class="bulk-label"><div class="bulk-label-name">${escapeHtml(item.name)}</div><img src="${dataUrl}" alt="${escapeHtml(item.name)}のQRコード"><div class="bulk-label-caption">もちもちもちもの</div></article>`);
+      }
+    });
+  }catch(err){console.error('QR一括生成:',err);alert('QRを一括生成できなかったよ：'+(err.message||'不明なエラー'));return;}
+  sheet.className=`bulk-print-sheet cols-${columns}`;
+  sheet.innerHTML=markup.join('');
+  document.getElementById('bulkPrintInfo').textContent=`${selected.length}種類・${markup.length}枚 / A4 ${columns}列`;
+  document.getElementById('bulkPrintOverlay').hidden=false;
+  document.body.classList.add('bulk-print-open');
+  document.getElementById('closeBulkPrintButton').focus();
+}
+function closeBulkPrintPreview(){
+  const overlay=document.getElementById('bulkPrintOverlay');
+  if(overlay)overlay.hidden=true;
+  document.body.classList.remove('bulk-print-open');
+}
+
 function printCurrentQr(){
   const item = state.items.find(x=>x.id===state.currentQrItemId); if(!item) return;
   const dataUrl = el.qrCanvas.toDataURL('image/png');
