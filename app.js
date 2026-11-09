@@ -1,5 +1,5 @@
 const STORAGE_KEY = 'mochimochi-mochimono-v15';
-const APP_VERSION = 'v1.5.1';
+const APP_VERSION = 'v1.6.0';
 const qrPrefix = 'MCM:';
 const weekdayNames = ['日','月','火','水','木','金','土'];
 const presetKinds = [
@@ -17,6 +17,17 @@ const presetKinds = [
   {key:'hat', label:'ぼうし', className:'kind-custom', tone:'#ffe8d4', glyph:'ぼ'},
   {key:'umbrella', label:'かさ', className:'kind-custom', tone:'#e2eef7', glyph:'か'},
   {key:'mask', label:'マスク', className:'kind-custom', tone:'#e9f1f3', glyph:'マ'},
+  {key:'textbook', label:'きょうかしょ', className:'kind-notebook', tone:'#f6e7d6', glyph:'教'},
+  {key:'print', label:'プリント', className:'kind-notebook', tone:'#fff1df', glyph:'プ'},
+  {key:'art', label:'えのぐセット', className:'kind-bag', tone:'#e7dafa', glyph:'絵'},
+  {key:'scissors', label:'はさみ', className:'kind-custom', tone:'#e1f1fa', glyph:'は'},
+  {key:'coat', label:'うわぎ', className:'kind-bag', tone:'#e7e8f8', glyph:'上'},
+  {key:'towel', label:'タオル', className:'kind-custom', tone:'#deefe2', glyph:'タ'},
+  {key:'library', label:'としょバッグ', className:'kind-bag', tone:'#f3e2d2', glyph:'図'},
+  {key:'badge', label:'なふだ', className:'kind-custom', tone:'#fff2d3', glyph:'名'},
+  {key:'swim', label:'すいえいセット', className:'kind-bag', tone:'#d9edf6', glyph:'水'},
+  {key:'key', label:'かぎ', className:'kind-custom', tone:'#f0e8d6', glyph:'か'},
+  {key:'backpack', label:'ランドセル', className:'kind-bag', tone:'#f3d8d8', glyph:'ラ'},
   {key:'custom', label:'そのほか（文字キャラ）', className:'kind-custom', tone:'#f2e7dd', glyph:'文'}
 ];
 const defaultPresets = [
@@ -30,7 +41,14 @@ const defaultPresets = [
 let state = loadState();
 let currentView = 'homeView';
 let calendarCursor = new Date();
-let scan = {stream:null, raf:null, lastSeen:'', lastAt:0};
+let scan = {stream:null, raf:null, lastSeen:'', lastAt:0, noCode:0, lastFrame:0, requestId:0};
+const scanCanvas = document.createElement('canvas');
+const scanCtx = scanCanvas.getContext('2d',{willReadFrequently:true});
+let roomSlotOrder = [];
+let roomMoveCount = 0;
+let pinFailures = 0;
+let pinLockedUntil = 0;
+let lastRenderedDay = ''; 
 let friendMotionTimer = null;
 let celebrateTimer = null;
 
@@ -40,13 +58,16 @@ document.addEventListener('DOMContentLoaded', init);
 
 function init(){
   cacheEls();
-  if(!state.items.length) seedDefaultItems();
+  if(!state.items.length && !localStorage.getItem(STORAGE_KEY)) seedDefaultItems();
   bindEvents();
   fillKindSelects();
   ensureTodayHistory();
   registerSW();
   updateOnlineBadge();
   renderAll();
+  lastRenderedDay = todayKey();
+  document.addEventListener('visibilitychange', onVisibilityChange);
+  window.setInterval(refreshForNewDay, 60000);
   window.addEventListener('online', updateOnlineBadge);
   window.addEventListener('offline', updateOnlineBadge);
 }
@@ -60,14 +81,17 @@ function bindEvents(){
   document.getElementById('startScanButton').addEventListener('click',()=>switchView('scannerView'));
   document.getElementById('stopScanButton').addEventListener('click',()=>switchView('homeView'));
   document.getElementById('switchCameraButton').addEventListener('click',restartScan);
-  document.getElementById('prevMonthButton').addEventListener('click',()=>{calendarCursor.setMonth(calendarCursor.getMonth()-1);renderCalendar();});
-  document.getElementById('nextMonthButton').addEventListener('click',()=>{calendarCursor.setMonth(calendarCursor.getMonth()+1);renderCalendar();});
+  document.getElementById('prevMonthButton').addEventListener('click',()=>{calendarCursor.setDate(1);calendarCursor.setMonth(calendarCursor.getMonth()-1);state.selectedDate=todayKey(calendarCursor);renderCalendar();});
+  document.getElementById('nextMonthButton').addEventListener('click',()=>{calendarCursor.setDate(1);calendarCursor.setMonth(calendarCursor.getMonth()+1);state.selectedDate=todayKey(calendarCursor);renderCalendar();});
   document.getElementById('settingsButton').addEventListener('click',()=>switchView('adminView'));
   document.getElementById('lockAdminButton').addEventListener('click',lockAdmin);
   document.getElementById('addItemForm').addEventListener('submit',onAddItem);
   document.getElementById('exportButton').addEventListener('click',exportBackup);
   document.getElementById('importInput').addEventListener('change',importBackup);
   document.getElementById('printQrButton').addEventListener('click',printCurrentQr);
+  const dateControl=document.getElementById('overrideDate');
+  if(dateControl){dateControl.value=todayKey();dateControl.addEventListener('change',renderOverrideEditor);}
+  document.getElementById('saveOverrideButton')?.addEventListener('click',saveOverrideDate);
 }
 
 function seedDefaultItems(){
@@ -98,7 +122,7 @@ function migrateV14(old){
     id:i.id, qrId:i.id, qrPrefix:'MCHK:', name:i.name,
     kind:legacyKinds[i.type] || 'custom',
     days:Array.from({length:7},(_,d)=>(i.weekdays||[1,2,3,4,5]).includes(d)),
-    createdAt:Date.now()
+    createdAt:i.addedOn ? new Date(i.addedOn+'T12:00:00').getTime() : Date.now()
   }));
   const data = {items,daily:{},history:{},admin:{pin:'',unlocked:false},scheduleOverrides:{}};
   try{ data.scheduleOverrides = JSON.parse(localStorage.getItem('mochimono-schedule-v1') || '{}') || {}; }catch(e){}
@@ -144,7 +168,8 @@ function normalizeState(s){
     scheduleOverrides:s.scheduleOverrides||{},
     admin:{pin:(s.admin&&s.admin.pin)||'',legacySalt:s.admin?.legacySalt||'',legacyHash:s.admin?.legacyHash||'',unlocked:false},
     lastQrValue:s.lastQrValue||'',
-    currentQrItemId:s.currentQrItemId||''
+    currentQrItemId:s.currentQrItemId||'',
+    selectedDate:s.selectedDate || todayKey()
   };
 }
 
@@ -155,11 +180,33 @@ function saveState(){
 }
 
 function registerSW(){
-  if('serviceWorker' in navigator){ navigator.serviceWorker.register('./sw.js').catch(()=>{}); }
+  if('serviceWorker' in navigator){
+    navigator.serviceWorker.register('./sw.js?v=160',{updateViaCache:'none'})
+      .then(reg=>{reg.update().catch(()=>{});})
+      .catch(err=>console.warn('オフライン準備:',err));
+  }
+}
+function onVisibilityChange(){
+  if(document.hidden){
+    if(friendMotionTimer){clearInterval(friendMotionTimer); friendMotionTimer=null;}
+    if(currentView==='scannerView')stopScan();
+    return;
+  }
+  refreshForNewDay();
+  if(currentView==='scannerView')startScan(); else if(currentView==='homeView')startFriendMotion();
+}
+function refreshForNewDay(){
+  if(todayKey()!==lastRenderedDay){
+    lastRenderedDay = todayKey();
+    ensureTodayHistory();
+    calendarCursor = new Date();
+    renderAll();
+  }
 }
 
+
 function updateOnlineBadge(){
-  const ready = navigator.onLine ? 'オフライン準備OK' : 'オフライン中';
+  const ready = navigator.onLine ? 'オンライン' : 'オフライン';
   el.offlineBadge.textContent = ready;
 }
 
@@ -168,6 +215,7 @@ function switchView(viewId){
   document.querySelectorAll('.view').forEach(v=>v.hidden = v.id !== viewId);
   document.querySelectorAll('.tab').forEach(b=>b.classList.toggle('is-active', b.dataset.view === viewId));
   if(viewId === 'scannerView') startScan(); else stopScan();
+  if(viewId!=='homeView' && friendMotionTimer){clearInterval(friendMotionTimer);friendMotionTimer=null;}
   if(viewId === 'calendarView') renderCalendar();
   if(viewId === 'adminView') renderAdmin(); else { if(state.admin) state.admin.unlocked = false; renderAdmin(); }
 }
@@ -180,11 +228,11 @@ function todayKey(date = new Date()){
 function formatJPDate(key){ const d = new Date(key+'T00:00:00'); return `${d.getFullYear()}年${d.getMonth()+1}月${d.getDate()}日（${weekdayNames[d.getDay()]}）`; }
 function uid(){ return Math.random().toString(36).slice(2,10) + Date.now().toString(36).slice(-4); }
 function getKindDef(kind){ return presetKinds.find(k=>k.key===kind) || presetKinds[presetKinds.length-1]; }
-function itemGlyph(item){ return getKindDef(item.kind).glyph || (item.name||'?').trim().charAt(0) || '?'; }
+function itemGlyph(item){ return item.kind==='custom' ? (Array.from((item.name||'').trim())[0]||'?') : (getKindDef(item.kind).glyph || '?'); }
 function itemColor(item){ return getKindDef(item.kind).tone || '#f2e7dd'; }
 function isSchoolday(dateKey){ const d = new Date(dateKey+'T00:00:00'); const day = d.getDay(); return day !== 0 && day !== 6; }
 function currentDayStatuses(dateKey = todayKey()){ if(!state.daily[dateKey]) state.daily[dateKey] = {}; return state.daily[dateKey]; }
-function statusFor(itemId, dateKey = todayKey()){ return currentDayStatuses(dateKey)[itemId] || 'missing'; }
+function statusFor(itemId, dateKey = todayKey()){ return state.daily[dateKey]?.[itemId] || 'missing'; }
 function setStatus(itemId, status, dateKey = todayKey()){
   currentDayStatuses(dateKey)[itemId] = status;
   syncHistory(dateKey);
@@ -192,6 +240,7 @@ function setStatus(itemId, status, dateKey = todayKey()){
   renderAll();
 }
 function requiredItems(dateKey = todayKey()){
+  if(state.history?.[dateKey]?.rest)return [];
   const d = new Date(dateKey+'T00:00:00'); const w = d.getDay();
   return state.items.filter(item => {
     const overridden=state.scheduleOverrides?.[dateKey]?.[item.id];
@@ -222,6 +271,11 @@ function renderAll(){
   renderFriends();
   renderCalendar();
   renderAdmin();
+  updateVersionBadge();
+}
+
+function updateVersionBadge(){
+  document.querySelectorAll('[data-app-version]').forEach(el=>el.textContent=`Version ${APP_VERSION}`);
 }
 
 function renderProgress(){
@@ -234,13 +288,13 @@ function renderProgress(){
   el.progressGauge.setAttribute('aria-valuenow', String(pct));
   const rem = Math.max(total-done,0);
   el.remainingText.textContent = total ? `あと ${rem} こ` : '登録なし';
-  el.progressMessage.textContent = total ? (rem===0 ? 'きょうの持ち物は ばっちり！' : `${rem}こ 見つけると みんながよろこぶよ`) : '保護者設定から持ち物を追加してね';
+  el.progressMessage.textContent = total ? (rem===0 ? 'きょうの持ち物は ばっちり！' : `${rem}こ 見つけると みんながよろこぶよ`) : 'きょうはチェックするものがないよ';
 }
 
 function buildFriendMarkup(item, extra=''){
   const kind = getKindDef(item.kind);
   const isCustom = item.kind === 'custom';
-  return `<div class="friend ${kind.className} ${isCustom?'custom-letter':''} ${extra}" data-item-id="${item.id}" style="--tone:${itemColor(item)}"><div class="blob"></div><div class="tone"></div>${isCustom?`<div class="letter">${escapeHtml(itemGlyph(item).charAt(0))}</div>`:''}<div class="face"><div class="cheeks"></div><div class="mouth"></div></div><div class="arms"></div><div class="legs"></div><div class="label">${escapeHtml(shorten(item.name,8))}</div></div>`;
+  return `<div class="friend ${kind.className} ${isCustom?'custom-letter':''} ${extra}" data-item-id="${item.id}" style="--tone:${itemColor(item)}"><div class="blob"></div><div class="tone"></div>${isCustom?`<div class="letter">${escapeHtml(itemGlyph(item))}</div>`:''}<div class="face"><div class="cheeks"></div><div class="mouth"></div></div><div class="arms"></div><div class="legs"></div><div class="label">${escapeHtml(shorten(item.name,8))}</div></div>`;
 }
 
 function renderHomeList(){
@@ -277,20 +331,34 @@ function toggleNoNeed(id){
 }
 
 function activityScore(item){
-  const today = new Date();
-  let sum = 0, denom = 0;
-  for(let i=0;i<14;i++){
-    const d = new Date(today); d.setDate(today.getDate()-i); const key = todayKey(d);
-    if(!isSchoolday(key)) continue;
-    if((item.days && item.days[d.getDay()]) === false) continue;
-    denom += 1;
-    const st = state.history[key]?.items?.find(x=>x.id===item.id)?.status || state.daily[key]?.[item.id] || 'missing';
-    if(st === 'qr') sum += 1;
-    else if(st === 'manual') sum += .8;
-    else if(st === 'notneeded') sum += .85;
+  // An actual seven-school-day moving window. Unused days after registration
+  // count gradually; weekends/holidays and "not needed" days do not.
+  const today=new Date();
+  const historyDates=Object.entries(state.history).filter(([,h])=>h.items?.some(i=>i.id===item.id)).map(([day])=>day).sort();
+  const registered=Number.isFinite(item.createdAt) ? todayKey(new Date(item.createdAt)) : todayKey();
+  const started=historyDates.length ? [registered,historyDates[0]].sort()[0] : registered;
+  let sum=0,weight=0,eligible=0;
+  for(let offset=0;offset<32 && eligible<7;offset++){
+    const date=new Date(today.getFullYear(),today.getMonth(),today.getDate()-offset);
+    const key=todayKey(date);
+    if(key<started)break;
+    if(state.history[key]?.rest)continue;
+    const weekday=date.getDay();
+    const dayRecord=state.history[key];
+    const wasExpected=dayRecord?.items?.some(i=>i.id===item.id);
+    const override=state.scheduleOverrides?.[key]?.[item.id];
+    const scheduled=typeof override==='boolean' ? override : !!item.days?.[weekday];
+    if(!scheduled && !wasExpected)continue;
+    eligible++;
+    const record=dayRecord?.items?.find(i=>i.id===item.id);
+    const status=record?.status || state.daily[key]?.[item.id] || 'missing';
+    if(status==='notneeded')continue;
+    if(status==='qr'){sum+=1;weight++;}
+    else if(status==='manual'){sum+=.8;weight++;}
+    else if(key!==todayKey()){weight++;}
   }
-  const base = denom ? sum/denom : .45;
-  return Math.max(0, Math.min(1, base));
+  // Prior equivalent to 3 neutral days keeps a single missed day gentle.
+  return Math.max(.12,Math.min(1,(sum+3*.55)/(weight+3)));
 }
 
 function roomMessageFromAvg(avg){
@@ -301,83 +369,144 @@ function roomMessageFromAvg(avg){
 }
 
 function renderFriends(){
-  const source = state.items.length ? state.items : requiredItems();
-  if(!source.length){ el.friendsLayer.innerHTML = ''; return; }
-  const scores = source.map(activityScore);
-  const avg = scores.length ? scores.reduce((a,b)=>a+b,0)/scores.length : 0;
-  const [mini,msg] = roomMessageFromAvg(avg);
-  el.friendsMiniStatus.textContent = mini;
-  el.friendsMessage.textContent = msg;
-  el.friendsLayer.innerHTML = source.map(item=>{
-    const a = activityScore(item);
-    let mood = a < .25 ? 'back small' : a < .5 ? 'side' : a < .75 ? 'happy' : 'happy big';
-    return buildFriendMarkup(item, mood);
+  const source=state.items;
+  if(!source.length){ el.friendsLayer.innerHTML=''; return; }
+  const scores=source.map(activityScore);
+  const avg=scores.reduce((a,b)=>a+b,0)/scores.length;
+  const [mini,msg]=roomMessageFromAvg(avg);
+  el.friendsMiniStatus.textContent=mini;
+  el.friendsMessage.textContent=msg;
+  el.friendsLayer.innerHTML=source.map(item=>{
+    const a=activityScore(item);
+    return buildFriendMarkup(item,moodClass(a));
   }).join('');
+  roomSlotOrder=[];
+  roomMoveCount=0;
   startFriendMotion();
 }
-
+function moodClass(a){
+  return a<.28?'back small':a<.5?'side':a<.75?'happy':'happy big';
+}
 function startFriendMotion(){
-  if(friendMotionTimer) clearInterval(friendMotionTimer);
+  if(friendMotionTimer)clearInterval(friendMotionTimer);
+  if(currentView!=='homeView' || document.hidden)return;
   moveFriendsOnce();
-  friendMotionTimer = setInterval(moveFriendsOnce, 2200);
+  friendMotionTimer=setInterval(moveFriendsOnce,2900);
 }
-
 function moveFriendsOnce(){
-  el.friendsLayer.querySelectorAll('.friend').forEach(friendEl=>{
-    const item = state.items.find(x=>x.id===friendEl.dataset.itemId); if(!item) return;
-    const a = activityScore(item);
-    const box = moodBox(a);
-    const x = rand(box.minX, box.maxX); const y = rand(box.minY, box.maxY);
-    friendEl.style.left = `${x}%`; friendEl.style.top = `${y}%`;
-    const moodClass = a < .25 ? 'back small' : a < .5 ? 'side' : a < .75 ? 'happy' : 'happy big';
-    friendEl.className = `friend ${getKindDef(item.kind).className} ${item.kind==='custom'?'custom-letter':''} ${moodClass}`;
+  const friends=Array.from(el.friendsLayer.querySelectorAll('.friend'));
+  const n=friends.length;
+  if(!n)return;
+  const room=el.friendsLayer.parentElement;
+  const W=room.clientWidth||320;
+  const sprite=W<=390?68:76;
+  const colGap=12, rowGap=8, h=sprite+rowGap;
+  const cols=Math.min(n,Math.max(1,Math.floor((W-22+colGap)/(sprite+colGap))));
+  const rows=Math.ceil(n/cols);
+  const desiredH=Math.max(228, 26+rows*(sprite+rowGap)+12);
+  room.style.height=desiredH+'px';
+  const H=room.clientHeight||desiredH;
+  const leftPad=Math.max(10,(W-(cols*sprite+(cols-1)*colGap))/2);
+  const topPad=Math.max(12,(H-(rows*sprite+(rows-1)*rowGap))/2);
+  // Assign unique slots, even when many items have low energy.
+  const slots=[];
+  for(let row=0;row<rows;row++)for(let col=0;col<cols;col++){
+    if(slots.length<n)slots.push({x:leftPad+col*(sprite+colGap),y:topPad+row*h});
+  }
+  if(roomSlotOrder.length!==n)roomSlotOrder=Array.from({length:n},(_,i)=>i);
+  roomMoveCount++;
+  const average=friends.reduce((sum,f)=>sum+activityScore(state.items.find(it=>it.id===f.dataset.itemId)),0)/n;
+  if(average>.5 && roomMoveCount%3===0 && n>1){
+    const a=Math.floor(rand(0,n)), b=(a+1+Math.floor(rand(0,n-1)))%n;
+    [roomSlotOrder[a],roomSlotOrder[b]]=[roomSlotOrder[b],roomSlotOrder[a]];
+  }
+  friends.forEach((friendEl,i)=>{
+    const item=state.items.find(it=>it.id===friendEl.dataset.itemId);
+    if(!item)return;
+    const energy=activityScore(item), slot=slots[roomSlotOrder[i]];
+    const move=energy<.3?2:energy<.6?5:8;
+    const x=Math.min(W-sprite-6,Math.max(6,slot.x+rand(-move,move)));
+    const y=Math.min(H-sprite-6,Math.max(6,slot.y+rand(-move,move)));
+    friendEl.style.left=`${x}px`;
+    friendEl.style.top=`${y}px`;
+    friendEl.style.transitionDuration=energy<.3?'2.9s':energy<.6?'2.5s':'2.1s';
+    friendEl.classList.toggle('back',energy<.28);
+    friendEl.classList.toggle('side',energy>=.28&&energy<.5);
+    friendEl.classList.toggle('happy',energy>=.5);
+    friendEl.classList.toggle('small',energy<.28);
+    friendEl.classList.toggle('big',energy>=.75);
   });
-}
-function moodBox(a){
-  if(a < .25) return {minX:70,maxX:84,minY:62,maxY:76};
-  if(a < .5) return {minX:52,maxX:80,minY:48,maxY:76};
-  if(a < .75) return {minX:28,maxX:72,minY:40,maxY:74};
-  return {minX:14,maxX:68,minY:36,maxY:72};
 }
 
 async function startScan(){
-  el.scanStatus.textContent = 'カメラを起動しています…';
-  try{
-    stopScan();
-    const constraints = {video:{facingMode:{ideal:'environment'}}, audio:false};
-    scan.stream = await navigator.mediaDevices.getUserMedia(constraints);
-    el.cameraVideo.srcObject = scan.stream;
-    await el.cameraVideo.play();
-    el.scanStatus.textContent = 'QRコードを枠の中に入れてね。';
-    scanLoop();
-  }catch(err){ el.scanStatus.textContent = 'カメラを使えませんでした。Safariでカメラ許可を確認してね。'; }
-}
-function stopScan(){
-  if(scan.raf) cancelAnimationFrame(scan.raf); scan.raf = null;
-  if(scan.stream){ scan.stream.getTracks().forEach(t=>t.stop()); scan.stream = null; }
-  if(el.cameraVideo) el.cameraVideo.srcObject = null;
-}
-function restartScan(){ if(currentView==='scannerView') startScan(); }
-function scanLoop(){
-  const video = el.cameraVideo;
-  if(!video || video.readyState < 2){ scan.raf = requestAnimationFrame(scanLoop); return; }
-  const canvas = document.createElement('canvas');
-  canvas.width = video.videoWidth || 640; canvas.height = video.videoHeight || 480;
-  const ctx = canvas.getContext('2d', {willReadFrequently:true});
-  ctx.drawImage(video,0,0,canvas.width,canvas.height);
-  const img = ctx.getImageData(0,0,canvas.width,canvas.height);
-  if(window.jsQR){
-    const code = window.jsQR(img.data, img.width, img.height, {inversionAttempts:'dontInvert'});
-    if(code && code.data && (Date.now() - scan.lastAt > 1500 || scan.lastSeen !== code.data)){
-      scan.lastSeen = code.data; scan.lastAt = Date.now();
-      onScanValue(code.data);
-    }
+  const id=++scan.requestId;
+  stopScan(false);
+  el.scanStatus.textContent='カメラを起動しています…';
+  if(!navigator.mediaDevices?.getUserMedia){
+    el.scanStatus.textContent='この環境ではカメラを起動できないよ。HTTPSで開いてね。';
+    return;
   }
-  scan.raf = requestAnimationFrame(scanLoop);
+  if(typeof window.jsQR!=='function'){
+    el.scanStatus.textContent='QR読み取りの準備ができていないよ。オンラインで一度開き直してね。';
+    return;
+  }
+  try{
+    const stream=await navigator.mediaDevices.getUserMedia({video:{facingMode:{ideal:'environment'}},audio:false});
+    if(id!==scan.requestId || currentView!=='scannerView'){
+      stream.getTracks().forEach(t=>t.stop()); return;
+    }
+    scan.stream=stream;
+    el.cameraVideo.srcObject=stream;
+    await el.cameraVideo.play();
+    if(id!==scan.requestId)return;
+    el.scanStatus.textContent='QRコードを枠の中に入れてね。';
+    scan.raf=requestAnimationFrame(scanLoop);
+  }catch(err){
+    el.scanStatus.textContent='カメラを使えなかったよ。Safariのカメラ許可を確認してね。';
+    console.warn('Camera:',err);
+  }
 }
+function stopScan(invalidate=true){
+  if(invalidate)scan.requestId++;
+  if(scan.raf)cancelAnimationFrame(scan.raf);
+  scan.raf=null;
+  const stream=scan.stream;
+  scan.stream=null;
+  if(stream)stream.getTracks().forEach(t=>t.stop());
+  if(el.cameraVideo){el.cameraVideo.pause();el.cameraVideo.srcObject=null;}
+  scan.lastSeen='';scan.noCode=0;
+}
+function restartScan(){if(currentView==='scannerView')startScan();}
+function scanLoop(timestamp){
+  if(!scan.stream || currentView!=='scannerView')return;
+  scan.raf=requestAnimationFrame(scanLoop);
+  if(timestamp-scan.lastFrame<180)return; // 5-6 fps is plenty on iPhone 8.
+  scan.lastFrame=timestamp;
+  const video=el.cameraVideo;
+  if(video.readyState<2 || !video.videoWidth)return;
+  const w=Math.min(480,video.videoWidth), h=Math.max(1,Math.round(w*video.videoHeight/video.videoWidth));
+  if(scanCanvas.width!==w||scanCanvas.height!==h){scanCanvas.width=w;scanCanvas.height=h;}
+  try{
+    scanCtx.drawImage(video,0,0,w,h);
+    const img=scanCtx.getImageData(0,0,w,h);
+    const code=window.jsQR(img.data,w,h,{inversionAttempts:'dontInvert'});
+    const text=code?.data?.trim()||'';
+    if(!text){
+      if(++scan.noCode>=3)scan.lastSeen='';
+      return;
+    }
+    scan.noCode=0;
+    if(text===scan.lastSeen)return;
+    scan.lastSeen=text;
+    scan.lastAt=Date.now();
+    onScanValue(text);
+  }catch(err){console.warn('QR decode:',err);}
+}
+
 function onScanValue(val){
   const item = state.items.find(it => `${it.qrPrefix || qrPrefix}${it.qrId}` === val);
   if(item){
+    if(statusFor(item.id)==='qr'){prependLog(`「${item.name}」はチェック済みだよ。`);return;}
     setStatus(item.id,'qr');
     prependLog(`「${item.name}」を見つけたよ！`);
     showCelebrate(item);
@@ -395,6 +524,7 @@ function showCelebrate(item){
   el.celebrateTitle.textContent = `${item.name} を みつけたよ！`;
   el.celebrateBody.innerHTML = `<span class="mochi-burst">みつけてもらえて うれしい！ もちもち〜！</span>`;
   el.celebratePopup.hidden = false;
+  el.celebratePopup.setAttribute('role','status');
   const roomFriend = el.friendsLayer.querySelector(`[data-item-id="${item.id}"]`);
   if(roomFriend){ roomFriend.classList.add('jump','mochi','happy','big'); setTimeout(()=>roomFriend.classList.remove('jump','mochi'),1400); }
   celebrateTimer = setTimeout(()=>{ el.celebratePopup.hidden = true; }, 2600);
@@ -409,9 +539,10 @@ function renderCalendar(){
   for(let i=0;i<startDay;i++) cells.push('<button class="day-cell empty" type="button" disabled></button>');
   for(let day=1; day<=last; day++){
     const d = new Date(y,m,day); const key = todayKey(d);
-    const counts = checkedCount(key);
+    const dayRecord=state.history[key];
+    const counts=dayRecord ? {total:dayRecord.items.length,done:dayRecord.items.filter(x=>['qr','manual','notneeded'].includes(x.status)).length} : {done:0,total:0};
     const pct = counts.total ? counts.done / counts.total : 0;
-    let chip = counts.total ? `${counts.done}/${counts.total}` : '—';
+    let chip = state.history[key]?.rest ? '休' : counts.total ? `${counts.done}/${counts.total}` : '—';
     let chipClass = pct===1 ? 'good' : pct>0 ? 'some' : '';
     const flags = ['day-cell', key===todayKey()?'today':'', key===selectedKey?'selected':''].join(' ');
     cells.push(`<button type="button" class="${flags}" data-date="${key}"><strong>${day}</strong><small>${weekdayNames[d.getDay()]}</small><span class="day-chip ${chipClass}">${chip}</span></button>`);
@@ -422,7 +553,9 @@ function renderCalendar(){
 }
 
 function renderCalendarDetail(dateKey){
-  const hist = state.history[dateKey] || {items: requiredItems(dateKey).map(item=>({id:item.id,name:item.name,kind:item.kind,status:statusFor(item.id,dateKey)}))};
+  const hist = state.history[dateKey];
+  if(!hist){el.calendarDetail.innerHTML=`<h2>${formatJPDate(dateKey)}</h2><p class="micro-note">この日の記録はまだないよ。</p>`;return;}
+  if(hist.rest){el.calendarDetail.innerHTML=`<h2>${formatJPDate(dateKey)}</h2><p class="micro-note">おやすみの日だよ。</p>`;return;}
   const groups = {ok:[], noneed:[], missing:[]};
   hist.items.forEach(it=>{ if(it.status==='qr' || it.status==='manual') groups.ok.push(it.name); else if(it.status==='notneeded') groups.noneed.push(it.name); else groups.missing.push(it.name); });
   el.calendarDetail.innerHTML = `<div class="section-title"><h1 style="font-size:20px;margin:0">${formatJPDate(dateKey)}</h1><p>その日の確認状況</p></div>
@@ -448,9 +581,18 @@ function renderAdmin(){
   if(currentView !== 'adminView') return;
   const pinSet = !!(state.admin.pin || state.admin.legacyHash);
   if(!pinSet){
-    el.adminAuth.innerHTML = `<div><strong>保護者用PINを作る</strong><p class="micro-note">4〜8桁の数字で、管理画面に入るためのPINを決めてね。</p></div><div class="pin-row"><input id="setPinInput" type="password" inputmode="numeric" maxlength="8" placeholder="PIN"><button type="button" class="primary-button" id="setPinButton">設定する</button></div>`;
+    el.adminAuth.innerHTML = `<div><strong>保護者用PINを作る</strong><p class="micro-note">4〜8桁の数字で、管理画面に入るためのPINを決めてね。</p></div><div class="pin-row"><input id="setPinInput" type="password" inputmode="numeric" maxlength="8" placeholder="PIN"></div><div class="pin-row"><input id="confirmPinInput" type="password" inputmode="numeric" maxlength="8" placeholder="もう一度PIN"><button type="button" class="primary-button" id="setPinButton">設定する</button></div>`;
     el.adminPanel.hidden = true;
-    document.getElementById('setPinButton').onclick = ()=>{ const pin = document.getElementById('setPinInput').value.trim(); if(!/^\d{4,8}$/.test(pin)) return alert('4〜8桁の数字にしてね'); state.admin.pin = simpleHash(pin); state.admin.unlocked = true; saveState(); renderAdmin(); };
+    document.getElementById('setPinButton').onclick = async ()=>{
+      const pin=document.getElementById('setPinInput').value.trim();
+      const confirmPin=document.getElementById('confirmPinInput').value.trim();
+      if(!/^\d{4,8}$/.test(pin))return alert('4〜8桁の数字にしてね');
+      if(pin!==confirmPin)return alert('確認のPINが一致しないよ');
+      const hash=await securePin(pin);
+      state.admin.pin=hash;
+      state.admin.unlocked=true;
+      saveState();renderAdmin();
+    };
     return;
   }
   if(!state.admin.unlocked){
@@ -458,9 +600,19 @@ function renderAdmin(){
     el.adminPanel.hidden = true;
     document.getElementById('enterPinButton').onclick = async ()=>{
       const pin = document.getElementById('enterPinInput').value.trim();
-      let ok = !!(state.admin.pin && simpleHash(pin)===state.admin.pin);
+      if(Date.now()<pinLockedUntil){alert('少し時間をおいてから試してね');return;}
+      let ok=state.admin.pin ? await verifyPin(pin,state.admin.pin) : false;
       if(!ok && state.admin.legacyHash) ok = await verifyLegacyPin(pin, state.admin.legacySalt, state.admin.legacyHash);
-      if(!ok){ alert('PINがちがうようです'); return; }
+      if(!ok){
+        pinFailures++;if(pinFailures>=5){pinLockedUntil=Date.now()+30000;pinFailures=0;}
+        alert('PINがちがうようです'); return;
+      }
+      pinFailures=0;
+      if(!String(state.admin.pin).startsWith('pbkdf2:')){
+        state.admin.pin=await securePin(pin);
+        delete state.admin.legacyHash; delete state.admin.legacySalt;
+        saveState();
+      }
       state.admin.unlocked = true; renderAdmin();
     };
     return;
@@ -468,9 +620,26 @@ function renderAdmin(){
   el.adminAuth.innerHTML = `<div class="friends-status">保護者モードです</div>`;
   el.adminPanel.hidden = false;
   renderAdminItems();
+  renderOverrideEditor();
 }
 function lockAdmin(){ state.admin.unlocked = false; renderAdmin(); }
-function simpleHash(s){ return btoa(unescape(encodeURIComponent('pin:'+s))); }
+function simpleHash(s){ return btoa('pin:'+s); } // Legacy v1.5 compatibility only.
+async function securePin(pin){
+  const salt=crypto.getRandomValues(new Uint8Array(16));
+  const key=await crypto.subtle.importKey('raw',new TextEncoder().encode(pin),'PBKDF2',false,['deriveBits']);
+  const bits=new Uint8Array(await crypto.subtle.deriveBits({name:'PBKDF2',salt,iterations:120000,hash:'SHA-256'},key,256));
+  return 'pbkdf2:'+toHex(salt)+':'+toHex(bits);
+}
+function toHex(a){return Array.from(a,x=>x.toString(16).padStart(2,'0')).join('');}
+async function verifyPin(pin,stored){
+  if(!stored.startsWith('pbkdf2:'))return simpleHash(pin)===stored;
+  const parts=stored.split(':');
+  if(parts.length!==3)return false;
+  const key=await crypto.subtle.importKey('raw',new TextEncoder().encode(pin),'PBKDF2',false,['deriveBits']);
+  const salt=Uint8Array.from(parts[1].match(/.{2}/g)||[],x=>parseInt(x,16));
+  const bits=new Uint8Array(await crypto.subtle.deriveBits({name:'PBKDF2',salt,iterations:120000,hash:'SHA-256'},key,256));
+  return toHex(bits)===parts[2];
+}
 async function verifyLegacyPin(pin,salt,expected){
   try{
     const key=await crypto.subtle.importKey('raw',new TextEncoder().encode(pin),'PBKDF2',false,['deriveBits']);
@@ -501,6 +670,40 @@ function renderAdminItems(){
   el.adminItemsList.querySelectorAll('[data-action="save"]').forEach(btn=>btn.addEventListener('click',()=>saveAdminItem(btn.dataset.id)));
   el.adminItemsList.querySelectorAll('[data-action="delete"]').forEach(btn=>btn.addEventListener('click',()=>deleteAdminItem(btn.dataset.id)));
 }
+function renderOverrideEditor(){
+  const date=document.getElementById('overrideDate')?.value||todayKey();
+  const container=document.getElementById('overrideItems');
+  if(!container)return;
+  const wd=new Date(date+'T00:00:00').getDay();
+  document.getElementById('restDayInput').checked=!!state.history[date]?.rest;
+  container.innerHTML=state.items.map(item=>{
+    const base=!!item.days?.[wd];
+    const override=state.scheduleOverrides?.[date]?.[item.id];
+    const needed=typeof override==='boolean'?override:base;
+    return `<label class="override-item"><span>${escapeHtml(item.name)}</span><input type="checkbox" data-id="${escapeHtml(item.id)}" ${needed?'checked':''}></label>`;
+  }).join('');
+}
+function saveOverrideDate(){
+  if(!state.admin.unlocked)return;
+  const date=document.getElementById('overrideDate')?.value;
+  if(!/^\d{4}-\d\d-\d\d$/.test(date||''))return alert('日付を選択してね');
+  const wd=new Date(date+'T00:00:00').getDay();
+  const overrides={};
+  document.querySelectorAll('#overrideItems input[type=checkbox]').forEach(input=>{
+    const item=state.items.find(i=>i.id===input.dataset.id);if(!item)return;
+    const baseline=!!item.days?.[wd];
+    if(input.checked!==baseline)overrides[item.id]=input.checked;
+  });
+  if(Object.keys(overrides).length)state.scheduleOverrides[date]=overrides;
+  else delete state.scheduleOverrides[date];
+  const rest=!!document.getElementById('restDayInput').checked;
+  if(rest){ state.history[date]={date,items:[],rest:true,updatedAt:Date.now()}; }
+  else if(state.history[date]){ state.history[date].rest=false; syncHistory(date); }
+  else {syncHistory(date);}
+  saveState();renderAll();
+  alert('この日の設定を保存したよ');
+}
+
 function saveAdminItem(id){
   const item = state.items.find(x=>x.id===id); if(!item) return;
   const card = el.adminItemsList.querySelector(`[data-admin-id="${id}"]`); if(!card) return;
@@ -513,23 +716,40 @@ function deleteAdminItem(id){
   if(!confirm('この持ち物を削除しますか？')) return;
   state.items = state.items.filter(x=>x.id !== id);
   Object.values(state.daily).forEach(day=>delete day[id]);
-  Object.values(state.history).forEach(hist=>{ if(hist.items) hist.items = hist.items.filter(x=>x.id !== id); });
+  // Keep historical snapshots even after a registered item is deleted.
   saveState(); renderAll();
 }
 
 function showQrFor(id){
-  const item = state.items.find(x=>x.id===id); if(!item) return;
-  if(!window.QRious){ alert('QRの準備がまだできていません。オンラインで再読込してみてください。'); return; }
-  state.currentQrItemId = id; state.lastQrValue = `${item.qrPrefix || qrPrefix}${item.qrId}`;
-  const qr = new window.QRious({element:el.qrCanvas, value:state.lastQrValue, size:240, level:'H', foreground:'#2f2b28', background:'#ffffff'});
-  el.qrDialogTitle.textContent = `${item.name} のQRコード`;
-  el.qrDialogText.textContent = '長押しで画像保存できます。印刷して持ち物に貼ってください。';
-  el.qrDialog.showModal();
+  const item=state.items.find(x=>x.id===id); if(!item)return;
+  const value=`${item.qrPrefix||qrPrefix}${item.qrId}`;
+  if(typeof window.MCQRCode!=='function'){
+    alert('QRの部品を読み込めなかったよ。オンラインで開き直してね');return;
+  }
+  try{
+    state.currentQrItemId=id;
+    state.lastQrValue=value;
+    const qr=new window.MCQRCode(-1,window.MCQRCodeLevels.M);
+    qr.addData(value);qr.make();
+    const canvas=el.qrCanvas;
+    const n=qr.getModuleCount(),quiet=4;
+    const size=232,cell=Math.max(2,Math.floor(size/(n+quiet*2)));
+    const s=cell*(n+quiet*2);
+    canvas.width=canvas.height=s;
+    const ctx=canvas.getContext('2d');
+    ctx.fillStyle='#fff';ctx.fillRect(0,0,s,s);
+    ctx.fillStyle='#1f1b1a';
+    for(let r=0;r<n;r++)for(let c=0;c<n;c++)if(qr.isDark(r,c))ctx.fillRect((c+quiet)*cell,(r+quiet)*cell,cell,cell);
+    el.qrDialogTitle.textContent=`${item.name} のQRコード`;
+    el.qrDialogText.textContent='画像を保存または印刷して、持ち物に貼ってね。';
+    el.qrDialog.showModal();
+  }catch(err){console.error('QR生成:',err);alert('QRを作成できなかったよ：'+(err.message||'不明なエラー'));}
 }
 function printCurrentQr(){
   const item = state.items.find(x=>x.id===state.currentQrItemId); if(!item) return;
   const dataUrl = el.qrCanvas.toDataURL('image/png');
   const w = window.open('','_blank');
+  if(!w){alert('ポップアップがブロックされました。QRを長押しして保存してね。');return;}
   w.document.write(`<title>${item.name} QR</title><body style="font-family:sans-serif;text-align:center;padding:24px"><h1>${escapeHtml(item.name)}</h1><img src="${dataUrl}" style="width:240px;height:240px"><p>もちもちもちもの</p></body>`);
   w.document.close(); w.focus(); setTimeout(()=>w.print(),200);
 }
@@ -538,10 +758,33 @@ function exportBackup(){
   const blob = new Blob([JSON.stringify({...state, admin:{...state.admin, unlocked:false}}, null, 2)], {type:'application/json'});
   const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = `mochimochi-mochimono-backup-${todayKey()}.json`; a.click(); URL.revokeObjectURL(a.href);
 }
+function importV14Backup(data){
+  // Old v1.4 exports use UUID item IDs, expected/checked/scanned arrays.
+  const legacyKinds={pencil:'pencilcase',bottle:'bottle',book:'notebook',shoe:'shoes',bag:'bag',cloth:'handkerchief',gym:'gym',lunch:'lunch',folder:'bag',mat:'board',tablet:'ipad',tissue:'tissue',umbrella:'umbrella',cap:'hat',letter:'custom'};
+  const items=data.items.map(i=>({id:i.id,qrId:i.id,qrPrefix:'MCHK:',name:i.name,kind:legacyKinds[i.type]||'custom',days:Array.from({length:7},(_,d)=>(i.weekdays||[1,2,3,4,5]).includes(d)),createdAt:i.addedOn ? new Date(i.addedOn+'T12:00:00').getTime() : Date.now()}));
+  const history={};const daily={};
+  for(const [key,day] of Object.entries(data.history||{})){
+    if(!/^\d{4}-\d\d-\d\d$/.test(key)||!Array.isArray(day?.expected))continue;
+    const checked=new Set(day.checked||[]),scanned=new Set(day.scanned||[]);
+    const entries=day.expected.map(e=>({id:e.id,name:e.name,kind:items.find(i=>i.id===e.id)?.kind||'custom',status:scanned.has(e.id)?'qr':checked.has(e.id)?'manual':'missing'}));
+    history[key]={date:key,items:entries,rest:!!day.rest,updatedAt:Date.now()};
+    daily[key]=Object.fromEntries(entries.map(e=>[e.id,e.status]));
+  }
+  return normalizeState({items,history,daily,scheduleOverrides:data.scheduleOverrides||{},admin:{pin:''}});
+}
 function importBackup(ev){
   const file = ev.target.files && ev.target.files[0]; if(!file) return;
   const reader = new FileReader();
-  reader.onload = ()=>{ try{ state = normalizeState(JSON.parse(reader.result)); saveState(); renderAll(); alert('復元しました'); }catch(e){ alert('復元に失敗しました'); } };
+  reader.onload=()=>{
+    try{
+      const payload=JSON.parse(reader.result);
+      if(!payload||!Array.isArray(payload.items)||payload.items.length>200)throw new Error('データ形式');
+      if(!confirm('現在の登録データをバックアップの内容に置き換えます。よろしいですか？'))return;
+      state=(payload.app==='mochimono-check'&&Number(payload.version)<=3) ? importV14Backup(payload) : normalizeState(payload);
+      saveState();ensureTodayHistory();renderAll();
+      alert('復元しました。登録したQRの番号も引き継いだよ。');
+    }catch(e){console.warn('Backup restore:',e);alert('バックアップの形式を確認してね。復元できなかったよ。');}
+  };
   reader.readAsText(file,'utf-8'); ev.target.value='';
 }
 

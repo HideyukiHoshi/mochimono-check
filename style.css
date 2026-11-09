@@ -13,10 +13,9 @@ button{cursor:pointer}
 [hidden]{display:none !important}
 .app-shell{max-width:520px;margin:0 auto;min-height:100vh;padding-bottom:calc(var(--navH) + env(safe-area-inset-bottom));}
 .header{position:sticky;top:0;z-index:40;display:flex;align-items:center;justify-content:space-between;padding:14px 16px 12px;background:rgba(255,251,247,.88);backdrop-filter:blur(10px);border-bottom:1px solid rgba(237,215,207,.9)}
-.brand{display:flex;gap:12px;align-items:center}.brand-icon{width:42px;height:42px;border-radius:16px;background:linear-gradient(135deg,#ffd9d0,#fff0eb);display:grid;place-items:center;border:1.4px solid #eab7aa;font-weight:800;color:#9f665a;box-shadow:var(--shadow)}
-.brand-kicker{font-size:12px;color:var(--muted)}.brand-name{font-size:22px;font-weight:800;letter-spacing:.02em}.header-actions{display:flex;gap:8px;align-items:center}
+.brand{display:flex;gap:10px;align-items:center;flex:1;min-width:0}.brand-icon{width:42px;height:42px;border-radius:16px;background:linear-gradient(135deg,#ffd9d0,#fff0eb);display:grid;place-items:center;border:1.4px solid #eab7aa;font-weight:800;color:#9f665a;box-shadow:var(--shadow);flex:none}.brand > div:last-child{min-width:0;flex:1}.brand-kicker{font-size:11px;color:var(--muted);line-height:1.15;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.brand-name{font-size:18px;font-weight:800;letter-spacing:0;line-height:1.05;word-break:keep-all;overflow-wrap:anywhere}.header-actions{display:flex;gap:8px;align-items:center;flex:none}
 .icon-button,.mini-button,.secondary-button,.primary-button,.tab{min-height:44px;border-radius:16px;border:1px solid var(--line);background:#fff;box-shadow:0 4px 12px rgba(140,114,106,.06)}
-.icon-button{width:44px;padding:0;display:grid;place-items:center;background:#fff5ef}.mini-button{padding:0 14px}.secondary-button,.primary-button{padding:12px 16px}.primary-button{background:linear-gradient(180deg,#ef9a81,#eb866c);color:#fff;border-color:#e58068;font-weight:700}.secondary-button{background:#fffaf8}.offline-badge{padding:8px 12px;border-radius:999px;background:#fff;border:1px solid var(--line);color:var(--muted);font-size:12px}
+.icon-button{width:42px;padding:0;display:grid;place-items:center;background:#fff5ef}.mini-button{padding:0 14px}.secondary-button,.primary-button{padding:12px 16px}.primary-button{background:linear-gradient(180deg,#ef9a81,#eb866c);color:#fff;border-color:#e58068;font-weight:700}.secondary-button{background:#fffaf8}.offline-badge{padding:7px 10px;border-radius:999px;background:#fff;border:1px solid var(--line);color:var(--muted);font-size:11px;line-height:1.15;white-space:nowrap}
 main{padding:14px 14px 18px}.hero{padding:6px 4px 14px}.eyebrow{display:inline-flex;background:#fff0ea;color:#9f665a;border:1px solid #f0d1c8;border-radius:999px;padding:8px 12px;font-size:12px;font-weight:700}.hero h1{margin:12px 0 6px;font-size:30px;line-height:1.15}.hero p,.section-title p{margin:0;color:var(--muted);line-height:1.55}
 .friends-card,.progress-card,.calendar-card,.calendar-detail,.soft-card,.auth-card{background:rgba(255,255,255,.86);border:1px solid #f1ddd5;border-radius:var(--radius);box-shadow:var(--shadow);padding:16px;margin-bottom:14px}
 .friends-head,.section-heading,.calendar-top,.admin-topline{display:flex;justify-content:space-between;align-items:center;gap:8px}.friends-kicker{font-size:12px;color:var(--muted)}.friends-head h2,.section-heading h2,.section-title h1,.soft-card h2{margin:2px 0 0;font-size:20px}.friends-status{padding:8px 10px;border-radius:999px;background:#fff5ef;color:#9f665a;font-size:12px;border:1px solid #f0d1c8}
@@ -52,4 +51,41 @@ main{padding:14px 14px 18px}.hero{padding:6px 4px 14px}.eyebrow{display:inline-f
 .sheet-dialog{border:none;padding:0;background:transparent;width:min(92vw,420px)}.sheet-dialog::backdrop{background:rgba(40,29,25,.35)}.sheet-card{padding:16px;background:#fff;border-radius:26px;border:1px solid #f0ddd4;box-shadow:var(--shadow)}.sheet-top{display:flex;justify-content:space-between;align-items:center}.sheet-top h2{margin:0}.qr-preview-wrap{display:grid;place-items:center;padding:14px 0}
 .celebrate-popup{position:fixed;inset:0;display:grid;place-items:center;z-index:70;background:rgba(73,54,48,.16)}.celebrate-card{width:min(88vw,360px);border-radius:28px;background:#fffdfb;border:1px solid #f0ddd5;box-shadow:0 18px 36px rgba(124,93,84,.22);padding:20px 18px;display:flex;gap:14px;align-items:center;animation:popIn .22s ease}.celebrate-char{width:84px;height:84px;position:relative;flex:none}.celebrate-card .friend{position:relative;left:auto !important;top:auto !important;margin:0 auto;transition:none}.celebrate-texts strong{display:block;font-size:18px;margin-bottom:6px}.celebrate-texts div{color:#8a6a60;font-weight:700}.mochi-burst{display:inline-block;animation:mochiText .8s ease infinite alternate}
 @keyframes popIn{from{transform:translateY(12px) scale(.95);opacity:0}to{transform:translateY(0) scale(1);opacity:1}} @keyframes mochiText{from{transform:scale(1)}to{transform:scale(1.08,.95)}}
-@media (max-width:390px){.hero h1{font-size:28px}.progress-layout{flex-direction:column;align-items:flex-start}.progress-gauge{width:104px;height:104px}.gauge-core{width:80px;height:80px}.friend{width:68px;height:68px}.room-scene{height:220px}.brand-name{font-size:20px}}
+@media (max-width:390px){.header{padding:12px 12px 10px}.hero h1{font-size:28px}.progress-layout{flex-direction:column;align-items:flex-start}.progress-gauge{width:104px;height:104px}.gauge-core{width:80px;height:80px}.friend{width:68px;height:68px}.room-scene{height:220px}.brand{gap:8px}.brand-icon{width:38px;height:38px;border-radius:14px}.brand-kicker{font-size:10px}.brand-name{font-size:16px;line-height:1.02}.icon-button{width:40px;min-height:40px}.offline-badge{font-size:10px;padding:6px 9px;max-width:108px;white-space:normal;text-align:center}.header-actions{gap:6px}}
+
+/* v1.6 — iPhone 8 typography and layout repair */
+.header{display:grid;grid-template-columns:minmax(0,1fr) auto;grid-template-rows:auto auto;column-gap:10px;row-gap:3px;padding:12px 16px 10px;align-items:center}
+.brand{grid-column:1;grid-row:1 / span 2;min-width:0;gap:10px}
+.brand > div:last-child{min-width:0;flex:1}
+.brand-icon{width:42px;height:42px;flex:none}
+.brand-kicker{font-size:11px;line-height:1.25;white-space:nowrap;max-width:100%}
+.brand-name{font-size:clamp(16px,4.7vw,21px);line-height:1.14;white-space:nowrap;overflow:visible;word-break:keep-all;letter-spacing:-.035em}
+.header-actions{display:contents}
+.header-actions .icon-button{grid-column:2;grid-row:1;justify-self:end;width:38px;min-height:38px;border-radius:15px;color:#775f57}
+.offline-badge{grid-column:2;grid-row:2;justify-self:end;font-size:10px;line-height:1.05;padding:5px 8px;white-space:nowrap;max-width:none;background:#eff9f2;color:#447d63;border-color:#cee9d5}
+.app-version{text-align:right;color:#9a857c;font-size:11px;padding:12px 2px}
+.friends-head{align-items:flex-start}.friends-head > div{min-width:0}.friends-status{flex:none;max-width:148px;text-align:center;line-height:1.3}
+.item-top{align-items:flex-start;flex-wrap:wrap}.item-main{min-width:160px}.item-card .status-pill{white-space:normal;line-height:1.25}
+.item-avatar .mini-friend{position:absolute !important;left:50% !important;top:50% !important;transform:translate(-50%,-50%) scale(.50) !important;transition:none;width:76px;height:76px}
+.item-avatar .mini-friend .label{display:none}
+.admin-date-label{display:flex;align-items:center;justify-content:space-between;gap:12px;font-size:14px;font-weight:650}
+.admin-date-label input{min-height:44px;max-width:170px;border:1px solid var(--line);border-radius:12px;background:#fff;padding:6px 10px}
+.rest-toggle,.override-item{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:12px;border:1px solid var(--line);border-radius:14px;background:#fff;font-size:14px}
+.override-items{display:grid;gap:8px;max-height:290px;overflow-y:auto}
+.override-item input,.rest-toggle input{width:20px;height:20px;accent-color:var(--accent)}
+.friend{will-change:left,top}
+.room-scene{height:228px;transition:height .25s ease}
+@media (max-width:390px){
+  .header{padding:10px 12px 10px;column-gap:5px}
+  .brand{gap:8px}.brand-icon{width:38px;height:38px}
+  .brand-kicker{font-size:10px}.brand-name{font-size:17px;letter-spacing:-.04em}
+  .offline-badge{font-size:10px;padding:5px 7px;max-width:none;white-space:nowrap}
+  .header-actions .icon-button{width:38px;min-height:38px}
+  .progress-layout{flex-direction:row;align-items:center}
+  .progress-gauge{width:96px;height:96px;flex:none}.gauge-core{width:74px;height:74px}
+  .progress-count{font-size:24px}.progress-main{min-width:0}
+  .friends-status{max-width:136px}
+  .room-scene{height:228px}
+  .item-card{padding:12px}.item-actions>.pill-button{flex:1;min-width:calc(50% - 6px);min-height:44px}
+}
+@media (prefers-reduced-motion: reduce){.friend,.progress-fill{transition-duration:.01ms !important}.celebrate-card,.mochi-burst{animation:none !important}}
