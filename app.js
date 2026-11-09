@@ -1,5 +1,5 @@
 const STORAGE_KEY = 'mochimochi-mochimono-v15';
-const APP_VERSION = 'v1.7.1';
+const APP_VERSION = 'v1.7.2';
 const qrPrefix = 'MCM:';
 const weekdayNames = ['日','月','火','水','木','金','土'];
 const presetKinds = [
@@ -227,7 +227,11 @@ function switchView(viewId){
   document.querySelectorAll('.view').forEach(v=>v.hidden = v.id !== viewId);
   document.querySelectorAll('.tab').forEach(b=>b.classList.toggle('is-active', b.dataset.view === viewId));
   if(viewId === 'scannerView') startScan(); else stopScan();
-  if(viewId!=='homeView' && friendMotionTimer){clearInterval(friendMotionTimer);friendMotionTimer=null;}
+  if(viewId === 'homeView'){
+    requestAnimationFrame(()=>startFriendMotion());
+  }else if(friendMotionTimer){
+    clearInterval(friendMotionTimer);friendMotionTimer=null;
+  }
   if(viewId === 'calendarView') renderCalendar();
   if(viewId === 'adminView') renderAdmin(); else { if(state.admin) state.admin.unlocked = false; renderAdmin(); }
 }
@@ -435,7 +439,7 @@ function moveFriendsOnce(){
     const item=byId.get(f.dataset.itemId);
     return sum+(item?activityScore(item):.5);
   },0)/n;
-  if(average>.5 && roomMoveCount%3===0 && n>1){
+  if((average>.42 || n>3) && roomMoveCount%2===0 && n>1){
     const a=Math.floor(rand(0,n)),b=(a+1+Math.floor(rand(0,n-1)))%n;
     [roomSlotOrder[a],roomSlotOrder[b]]=[roomSlotOrder[b],roomSlotOrder[a]];
   }
@@ -446,7 +450,7 @@ function moveFriendsOnce(){
     // The slot is 60px across; max visible width is approx 60px.
     const scale=energy<.28?.67:energy<.75?.74:.79;
     const visibleSize=baseSize*scale;
-    const movement=energy<.3?2:energy<.6?6:10;
+    const movement=energy<.3?3:energy<.6?8:14;
     const x=Math.min(W-visibleSize-7,Math.max(7,slot.x+rand(-movement,movement)));
     const y=Math.min(H-visibleSize-7,Math.max(7,slot.y+rand(-movement,movement)));
     friendEl.style.left=`${x}px`;

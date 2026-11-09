@@ -1,6 +1,6 @@
 /* もちもちもちもの: versioned offline cache / network-first application files */
-const CACHE_NAME='mochimochi-v1.7.1';
-const CORE=['./','./index.html','./style.css?v=171','./app.js?v=171','./qr-core.js?v=171','./manifest.webmanifest?v=171','./icon-192.png?v=171','./icon-512.png?v=171','./apple-touch-icon.png?v=171'];
+const CACHE_NAME='mochimochi-v1.7.2';
+const CORE=['./','./index.html','./style.css?v=172','./app.js?v=172','./qr-core.js?v=172','./manifest.webmanifest?v=172','./icon-192.png?v=172','./icon-512.png?v=172','./apple-touch-icon.png?v=172'];
 const OPTIONAL=['https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.js'];
 self.addEventListener('install',event=>{
   event.waitUntil((async()=>{
